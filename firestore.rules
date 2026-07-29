@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+
+    // Account doc: one per person. Holds username + the list of buildings joined.
+    match /users/{u} {
+      allow read: if signedIn();
+      allow create: if uid() == u && request.resource.data.buildings.size() == 0;
+      allow update: if uid() == u;      // join adds a bid to their own list
+      allow delete: if false;
+    }
+
+    match /buildings/{bid} {
+      function cfg() { return get(/databases/$(database)/documents/buildings/$(bid)).data; }
+      function hasCfg() { return exists(/databases/$(database)/documents/buildings/$(bid)); }
+      function isMember() { return signedIn() && exists(/databases/$(database)/documents/buildings/$(bid)/members/$(uid())); }
+      function myRoles() { return get(/databases/$(database)/documents/buildings/$(bid)/members/$(uid())).data.roles; }
+      function isAdmin() { return signedIn() && hasCfg() && (uid() == cfg().adminUid || (isMember() && myRoles().hasAny(['admin']))); }
+      function canEditMonth() { return isAdmin() || (isMember() && myRoles().hasAny(['treasurer','water'])); }
+
+      // config publicly readable (join screen shows the building name); founder creates; admin edits
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.adminUid == uid();
+      allow update, delete: if isAdmin();
+
+      match /members/{m} {
+        allow read: if isMember() || isAdmin();
+        allow create: if (uid() == m && request.resource.data.roles.size() == 0) || isAdmin();
+        allow update: if isAdmin() || (uid() == m && request.resource.data.roles == resource.data.roles);
+        allow delete: if isAdmin();
+      }
+
+      match /flats/{flat} {
+        allow read: if isMember();
+        allow create: if isAdmin() || (signedIn() && !hasCfg());          // founding batch
+        allow update: if isAdmin() || (isMember() && request.resource.data.claimedByUid == uid());
+        allow delete: if isAdmin();
+      }
+
+      match /waterPeriods/{p} {
+        allow read: if isMember();
+        allow write: if canEditMonth() || (signedIn() && !hasCfg());       // founding batch
+      }
+      match /maintPeriods/{p} {
+        allow read: if isMember();
+        allow write: if canEditMonth() || (signedIn() && !hasCfg());       // founding batch
+      }
+    }
+  }
+}

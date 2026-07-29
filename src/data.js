@@ -1,0 +1,195 @@
+/* Firestore access layer — multi-building, with SEPARATE water & maintenance
+   billing-period streams (different people, different cycles).
+   buildings/{bid}/waterPeriods/{id}  { periodStart, periodEnd, genCount, genRate,
+                                         manCount, manRate, connBill, readings, paidWater, createdAt }
+   buildings/{bid}/maintPeriods/{id}  { periodStart, periodEnd, expenses, paidMaint, createdAt }
+*/
+import {
+  doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, onSnapshot, writeBatch, query, arrayUnion, arrayRemove,
+} from "firebase/firestore";
+import { db } from "./firebase";
+import { buildFlatsForSetup, buildSeedWater, buildSeedMaint, nextMonthBounds } from "./seedData";
+import { WATER_2026 } from "./historicalWaterPeriods";
+
+const userRef = (uid) => doc(db, "users", uid);
+const bldRef = (bid) => doc(db, "buildings", bid);
+const flatRef = (bid, f) => doc(db, "buildings", bid, "flats", f);
+const flatsCol = (bid) => collection(db, "buildings", bid, "flats");
+const membersCol = (bid) => collection(db, "buildings", bid, "members");
+const memberRef = (bid, uid) => doc(db, "buildings", bid, "members", uid);
+const waterCol = (bid) => collection(db, "buildings", bid, "waterPeriods");
+const waterRef = (bid, id) => doc(db, "buildings", bid, "waterPeriods", id);
+const maintCol = (bid) => collection(db, "buildings", bid, "maintPeriods");
+const maintRef = (bid, id) => doc(db, "buildings", bid, "maintPeriods", id);
+
+/* ---- account ---- */
+export const subscribeAccount = (uid, cb) =>
+  onSnapshot(userRef(uid), (s) => cb(s.exists() ? s.data() : null));
+export async function ensureAccount(uid, username) {
+  const s = await getDoc(userRef(uid));
+  if (!s.exists()) await setDoc(userRef(uid), { username, buildings: [], createdAt: Date.now() });
+}
+
+/* ---- building config (public read) ---- */
+export const subscribeBuilding = (bid, cb) =>
+  onSnapshot(bldRef(bid), (s) => cb(s.exists() ? { id: bid, ...s.data() } : null));
+export async function getBuilding(bid) {
+  const s = await getDoc(bldRef(bid));
+  return s.exists() ? { id: bid, ...s.data() } : null;
+}
+
+export async function createBuilding({ details, floors, perFloor, adminUid, username, prefill = false }) {
+  const bref = doc(collection(db, "buildings"));
+  const bid = bref.id;
+  const flats = buildFlatsForSetup(floors, perFloor, prefill);
+  const batch = writeBatch(db);
+  batch.set(bref, { ...details, type: "single", floors, perFloor, adminUid, inviteCode: makeCode(),
+    seededSrGold: !!prefill, createdAt: Date.now() });
+  flats.forEach((f) => batch.set(flatRef(bid, f.flat), f));
+  batch.set(waterRef(bid, "seed"), { ...buildSeedWater(flats, prefill), createdAt: Date.now(), updatedAt: Date.now() });
+  batch.set(maintRef(bid, "seed"), { ...buildSeedMaint(prefill), createdAt: Date.now(), updatedAt: Date.now() });
+  batch.set(memberRef(bid, adminUid), { username, flat: null, roles: [], residentType: "owner", joinedAt: Date.now() });
+  batch.update(userRef(adminUid), { buildings: arrayUnion(bid) });
+  await batch.commit();
+  return bid;
+}
+export const updateBuilding = (bid, patch) => updateDoc(bldRef(bid), patch);
+
+/* ---- membership / join ---- */
+export async function joinBuilding(bid, uid, username) {
+  const batch = writeBatch(db);
+  batch.set(memberRef(bid, uid), { username, flat: null, roles: [], residentType: "owner", joinedAt: Date.now() });
+  batch.update(userRef(uid), { buildings: arrayUnion(bid) });
+  await batch.commit();
+}
+export const subscribeMembership = (bid, uid, cb) =>
+  onSnapshot(memberRef(bid, uid), (s) => cb(s.exists() ? { uid, ...s.data() } : null));
+export const subscribeMembers = (bid, cb) =>
+  onSnapshot(query(membersCol(bid)), (snap) => cb(snap.docs.map((d) => ({ uid: d.id, ...d.data() }))));
+export const setMemberFlat = (bid, uid, flat) => updateDoc(memberRef(bid, uid), { flat });
+export const setMemberRoles = (bid, uid, roles) => updateDoc(memberRef(bid, uid), { roles });
+export const updateMembership = (bid, uid, patch) => updateDoc(memberRef(bid, uid), patch);
+
+/* ---- flats ---- */
+export const subscribeFlats = (bid, cb) =>
+  onSnapshot(query(flatsCol(bid)), (snap) => cb(snap.docs.map((d) => d.data())));
+export const claimFlatWithDetails = (bid, flat, uid, details) =>
+  updateDoc(flatRef(bid, flat), { ...details, claimedByUid: uid });
+/* Set a flat's meter serial (lives on the flat, shared across all periods). */
+export const setFlatMeter = (bid, flat, meter) => updateDoc(flatRef(bid, flat), { meter });
+
+/* ---- WATER periods ---- */
+export const subscribeWaterPeriods = (bid, cb) =>
+  onSnapshot(query(waterCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+export const saveWaterPeriod = (bid, id, data) => {
+  const { id: _d, ...body } = data;
+  return setDoc(waterRef(bid, id), { ...body, updatedAt: Date.now() });
+};
+export const deleteWaterPeriod = (bid, id) => deleteDoc(waterRef(bid, id));
+/* new blank water period; opening readings carry from last closing */
+export async function startNextWaterPeriod(bid, current) {
+  const readings = {};
+  Object.entries(current.readings || {}).forEach(([flat, r]) => {
+    readings[flat] = { prev: r.curr || 0, curr: "", adj: 0 };
+  });
+  const ref = doc(waterCol(bid));
+  await setDoc(ref, {
+    periodStart: "", periodEnd: "", genCount: "", genRate: "", manCount: "", manRate: "", connBill: "",
+    readings, paidWater: {}, createdAt: Date.now(), updatedAt: Date.now(),
+  });
+  return ref.id;
+}
+
+/* ---- MAINTENANCE periods ---- */
+export const subscribeMaintPeriods = (bid, cb) =>
+  onSnapshot(query(maintCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+export const saveMaintPeriod = (bid, id, data) => {
+  const { id: _d, ...body } = data;
+  return setDoc(maintRef(bid, id), { ...body, updatedAt: Date.now() });
+};
+export const deleteMaintPeriod = (bid, id) => deleteDoc(maintRef(bid, id));
+
+/* Toggle a paid flag directly on a specific period (used by Overview on the
+   current bill, independent of tab editing). coll = waterPeriods|maintPeriods. */
+export const setPaidFlag = (bid, coll, id, kind, flat, value) =>
+  updateDoc(doc(db, "buildings", bid, coll, id), { [`${kind}.${flat}`]: value });
+
+/* Mark a period as published (a shareable snapshot; re-publishable on updates). */
+export const publishPeriod = (bid, coll, id, uid) =>
+  updateDoc(doc(db, "buildings", bid, coll, id), { publishedAt: Date.now(), publishedBy: uid });
+/* new maintenance period defaulting to the NEXT calendar month.
+   Only items flagged recurring carry forward (with their amounts); one-offs drop. */
+export async function startNextMaintPeriod(bid, current) {
+  const b = nextMonthBounds(current.periodStart || current.periodEnd);
+  const ref = doc(maintCol(bid));
+  await setDoc(ref, {
+    periodStart: b.start, periodEnd: b.end,
+    expenses: (current.expenses || []).filter((e) => e.recurring).map((e) => ({ ...e })),
+    paidMaint: {}, createdAt: Date.now(), updatedAt: Date.now(),
+  });
+  return ref.id;
+}
+
+/* One-time: turn the baked-in 2026 water history into real editable periods.
+   Skips any month whose start date already exists. Ordered chronologically. */
+export async function backfillWater2026(bid, existingStarts = []) {
+  const batch = writeBatch(db);
+  let n = 0;
+  Object.values(WATER_2026).forEach((p) => {
+    if (existingStarts.includes(p.periodStart)) return;
+    const ref = doc(waterCol(bid));
+    batch.set(ref, { ...p, paidWater: {}, createdAt: Date.parse(p.periodStart), updatedAt: Date.now() });
+    n++;
+  });
+  batch.update(bldRef(bid), { water2026Imported: true });
+  await batch.commit();
+  return n;
+}
+
+function makeCode() { return Math.random().toString(36).slice(2, 8).toUpperCase(); }
+
+/* Self-heal: if a building has no periods yet (e.g. created before the
+   water/maintenance split), create a blank starter so the app never hangs. */
+export async function ensureWaterPeriod(bid, flats) {
+  const ref = doc(waterCol(bid));
+  await setDoc(ref, { ...buildSeedWater(flats, false), createdAt: Date.now(), updatedAt: Date.now() });
+}
+export async function ensureMaintPeriod(bid) {
+  const ref = doc(maintCol(bid));
+  await setDoc(ref, { ...buildSeedMaint(false), createdAt: Date.now(), updatedAt: Date.now() });
+}
+
+/* Add a fresh blank period (for backfilling a past month or adding any period).
+   Returns the new id so the caller can select it for editing. */
+export async function addWaterPeriod(bid, flats) {
+  const ref = doc(waterCol(bid));
+  await setDoc(ref, { ...buildSeedWater(flats, false), createdAt: Date.now(), updatedAt: Date.now() });
+  return ref.id;
+}
+export async function addMaintPeriod(bid) {
+  const ref = doc(maintCol(bid));
+  await setDoc(ref, { periodStart: "", periodEnd: "", expenses: [], paidMaint: {}, createdAt: Date.now(), updatedAt: Date.now() });
+  return ref.id;
+}
+
+/* Admin-only: delete an entire building — every subcollection doc, the config,
+   and remove the building id from each member's account. */
+export async function deleteBuilding(bid) {
+  const cols = [flatsCol(bid), waterCol(bid), maintCol(bid), membersCol(bid)];
+  const memberSnap = await getDocs(membersCol(bid));
+  // detach the building from every member's account list
+  for (const m of memberSnap.docs) {
+    try { await updateDoc(userRef(m.id), { buildings: arrayRemove(bid) }); } catch {}
+  }
+  // delete all subcollection docs (batched)
+  for (const c of cols) {
+    const snap = await getDocs(c);
+    let batch = writeBatch(db), n = 0;
+    for (const d of snap.docs) {
+      batch.delete(d.ref); n++;
+      if (n === 400) { await batch.commit(); batch = writeBatch(db); n = 0; }
+    }
+    if (n > 0) await batch.commit();
+  }
+  await deleteDoc(bldRef(bid));
+}
