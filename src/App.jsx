@@ -265,7 +265,9 @@ export default function App() {
   const hasEditorRole = membership?.roles?.some((r) => ["admin", "water", "treasurer"].includes(r));
   const skipOnboarding = config && membership ? (isAdmin(membership, config, user.uid) || hasEditorRole) : false;
   if (config && membership && !membership.flat && !skipOnboarding) {
+    if (!flats.length) return <Splash text="Loading flats…" />;
     return <Onboarding bid={effectiveBid} uid={user.uid} username={account.username} flats={flats} config={config}
+      onSignOut={() => signOut(auth)}
       onDone={() => {
         // membership is subscribed reactively — Firestore will push the flat update
         // and App will re-render into Dashboard automatically. No extra state needed.

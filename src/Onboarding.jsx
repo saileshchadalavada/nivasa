@@ -3,7 +3,7 @@ import { claimFlatWithDetails, setMemberFlat, updateMembership } from "./data";
 import { styles as S, T, css, display, font } from "./styles";
 
 /* New member picks their flat within a specific building (bid). */
-export default function Onboarding({ bid, uid, username, flats, config, onDone }) {
+export default function Onboarding({ bid, uid, username, flats, config, onDone, onSignOut }) {
   const [picked, setPicked] = useState(null);
   const [name, setName] = useState("");
   const [meter, setMeter] = useState("");
@@ -88,6 +88,15 @@ export default function Onboarding({ bid, uid, username, flats, config, onDone }
           </>
         )}
         {err && !picked && <div style={{ ...O.err, maxWidth: 420, margin: "12px auto 0" }}>{err}</div>}
+        {onSignOut && (
+          <div style={{ textAlign: "center", marginTop: 28 }}>
+            <button onClick={onSignOut}
+              style={{ background: "none", border: "none", color: T.inkSoft, fontSize: 13,
+                cursor: "pointer", fontFamily: font, textDecoration: "underline" }}>
+              Sign out
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
