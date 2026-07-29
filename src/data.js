@@ -70,6 +70,20 @@ export const setMemberFlat = (bid, uid, flat) => updateDoc(memberRef(bid, uid), 
 export const setMemberRoles = (bid, uid, roles) => updateDoc(memberRef(bid, uid), { roles });
 export const updateMembership = (bid, uid, patch) => updateDoc(memberRef(bid, uid), patch);
 
+/* Admin flat assignment: atomically updates the member doc AND both flat docs
+   (clears claimedByUid on the old flat, sets it on the new one). */
+export async function adminAssignFlat(bid, uid, newFlat, oldFlat) {
+  const batch = writeBatch(db);
+  batch.update(memberRef(bid, uid), { flat: newFlat || null });
+  if (oldFlat && oldFlat !== newFlat) {
+    batch.update(flatRef(bid, oldFlat), { claimedByUid: null });
+  }
+  if (newFlat && newFlat !== oldFlat) {
+    batch.update(flatRef(bid, newFlat), { claimedByUid: uid });
+  }
+  await batch.commit();
+}
+
 /* ---- flats ---- */
 export const subscribeFlats = (bid, cb) =>
   onSnapshot(query(flatsCol(bid)), (snap) => cb(snap.docs.map((d) => d.data())));

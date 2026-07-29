@@ -101,17 +101,13 @@ export default function App() {
   const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
   const sortedMaint = useMemo(() => newest(allMaint || []), [allMaint]);
 
-  // DISPLAY period (Overview + header) = the latest period WITH dates — the real
-  // current bill. A blank just-started draft never becomes the displayed current.
   const latestDated = (arr) => { const d = arr.filter((p) => p.periodEnd); return d.length ? d.reduce((a, b) => ((a.periodEnd || "") >= (b.periodEnd || "") ? a : b)) : (arr[arr.length - 1] || null); };
   const displayWater = latestDated(sortedWater);
   const displayMaint = latestDated(sortedMaint);
-  // EDIT default = newest created (the blank draft if one was just started)
   const newestWater = sortedWater[sortedWater.length - 1] || null;
   const newestMaint = sortedMaint[sortedMaint.length - 1] || null;
   const hasDraftWater = sortedWater.some((p) => !p.periodEnd);
   const hasDraftMaint = sortedMaint.some((p) => !p.periodEnd);
-  // History = dated periods except the current display bill
   const pastWater = sortedWater.filter((p) => p.periodEnd && (!displayWater || p.id !== displayWater.id));
   const pastMaint = sortedMaint.filter((p) => p.periodEnd && (!displayMaint || p.id !== displayMaint.id));
 
@@ -119,20 +115,17 @@ export default function App() {
   const [selMaintId, setSelMaintId] = useState("");
   const selectedWater = sortedWater.find((p) => p.id === selWaterId) || newestWater;
   const selectedMaint = sortedMaint.find((p) => p.id === selMaintId) || newestMaint;
-  // start-next only from the current bill, and only if no blank draft is pending
   const isLatestWater = !!selectedWater && !!displayWater && selectedWater.id === displayWater.id && !hasDraftWater;
   const isLatestMaint = !!selectedMaint && !!displayMaint && selectedMaint.id === displayMaint.id && !hasDraftMaint;
 
   useEffect(() => { if (selectedWater && !wDirty.current) setWaterMonth(selectedWater); }, [selectedWater]);
   useEffect(() => { if (selectedMaint && !mDirty.current) setMaintMonth(selectedMaint); }, [selectedMaint]);
 
-  // current bill = which period Overview reads & marks paid on
   const currentWater = displayWater;
   const currentMaint = displayMaint;
   const togglePaidWater = (flat) => { if (displayWater) setPaidFlag(effectiveBid, "waterPeriods", displayWater.id, "paidWater", flat, !displayWater.paidWater?.[flat]); };
   const togglePaidMaint = (flat) => { if (displayMaint) setPaidFlag(effectiveBid, "maintPeriods", displayMaint.id, "paidMaint", flat, !displayMaint.paidMaint?.[flat]); };
 
-  // self-heal: a building with no periods yet (old data, or pre-split) gets a blank starter
   const seeded = useRef({});
   useEffect(() => {
     if (!effectiveBid || allWater === null) return;
@@ -266,14 +259,24 @@ export default function App() {
   if (!effectiveBid) {
     return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
   }
+  // Show onboarding as soon as config + membership are ready — no need to wait for water/maint.
+  // Editor roles (water, treasurer) also bypass onboarding so they can reach the Dashboard
+  // even if they haven't claimed a flat yet.
+  const hasEditorRole = membership?.roles?.some((r) => ["admin", "water", "treasurer"].includes(r));
+  const skipOnboarding = config && membership ? (isAdmin(membership, config, user.uid) || hasEditorRole) : false;
+  if (config && membership && !membership.flat && !skipOnboarding) {
+    return <Onboarding bid={effectiveBid} uid={user.uid} username={account.username} flats={flats} config={config}
+      onDone={() => {
+        // membership is subscribed reactively — Firestore will push the flat update
+        // and App will re-render into Dashboard automatically. No extra state needed.
+      }} />;
+  }
+
   if (!config || membership === undefined || allWater === null || allMaint === null || !waterMonth || !maintMonth) {
     return <Splash text="Loading ledger…" />;
   }
 
   const admin = isAdmin(membership, config, user.uid);
-  if (membership && !membership.flat && !admin) {
-    return <Onboarding bid={effectiveBid} uid={user.uid} username={account.username} flats={flats} config={config} onDone={() => {}} />;
-  }
 
   const buildingList = (account.buildings || []).map((b) => ({ bid: b, name: bnames[b] || "Building" }));
 

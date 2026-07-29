@@ -1,5 +1,5 @@
 import React from "react";
-import { setMemberRoles, setMemberFlat } from "./data";
+import { setMemberRoles, adminAssignFlat } from "./data";
 import { styles as S, T } from "./styles";
 
 /* Admin-only: grant/revoke per-building roles, override a member's flat. */
@@ -35,7 +35,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                   </td>
                   <td style={{ ...S.td, padding: "4px 8px" }}>
                     <select className="cell" style={S.cellSelect} value={u.flat || ""}
-                      onChange={(e) => setMemberFlat(bid, u.uid, e.target.value || null)}>
+                      onChange={(e) => adminAssignFlat(bid, u.uid, e.target.value || null, u.flat || null)}>
                       <option value="">— none —</option>
                       {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
                     </select>
