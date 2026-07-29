@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   const { image } = req.body || {};
   if (!image) return res.status(400).json({ error: "Missing image (base64)" });
 
-  const prompt = `This is a GLOBTECH water meter photo. Return ONLY a JSON object, nothing else.
+  const prompt = `This is a GLOBTECH water meter photo. Return ONLY a JSON object, nothing else. No explanation, no markdown.
 
 Extract:
 1. "serial" — stamped on the BRASS RIM EDGE (e.g. "5043/22"). NOT on the dial face.
@@ -24,7 +24,7 @@ Example: if odometer shows 00682.05, return reading as "682050".
 
   try {
     const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -38,7 +38,6 @@ Example: if odometer shows 00682.05, return reading as "682050".
           generationConfig: {
             temperature: 0,
             maxOutputTokens: 300,
-            responseMimeType: "application/json",
           },
         }),
       }
