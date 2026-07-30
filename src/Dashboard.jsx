@@ -74,7 +74,7 @@ export default function Dashboard({
     const manEqual = manCost / nRes, connEqual = (M.connBill || 0) / nRes;
     const detailed = rows.map((r) => {
       const pct = (r.cons / totalCons) * 100; // usage share of the whole building (incl. common) — sums to 100
-      const genShare = r.isCommon ? 0 : (r.cons / resCons) * genCost; // residents cover the full tanker cost
+      const genShare = (r.cons / totalCons) * genCost; // split by % of total building use (incl. common) — matches the Excel register
       return { ...r, pct, genShare, manEqual: r.isCommon ? 0 : manEqual, connEqual: r.isCommon ? 0 : connEqual,
         bill: r.isCommon ? 0 : genShare + manEqual + connEqual + (r.adj || 0) };
     });
