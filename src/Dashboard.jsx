@@ -76,7 +76,7 @@ export default function Dashboard({
       const pct = (r.cons / totalCons) * 100; // usage share of the whole building (incl. common) — sums to 100
       const genShare = (r.cons / totalCons) * genCost; // split by % of total building use (incl. common) — matches the Excel register
       return { ...r, pct, genShare, manEqual: r.isCommon ? 0 : manEqual, connEqual: r.isCommon ? 0 : connEqual,
-        bill: r.isCommon ? 0 : genShare + manEqual + connEqual + (r.adj || 0) };
+        bill: r.isCommon ? genShare : genShare + manEqual + connEqual + (r.adj || 0) };
     });
     return { rows: detailed, totalCons, rawCons, resCons, genCost, manCost, manEqual, connEqual, grandTotal: genCost + manCost + (M.connBill || 0) };
   };
@@ -292,7 +292,7 @@ function roleText(membership, admin, meFlat) {
 
 /* ============================= OVERVIEW ============================= */
 function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile }) {
-  const billable = water.rows.filter((r) => !r.isCommon).reduce((s, r) => s + r.bill, 0) + maint.total;
+  const billable = water.rows.reduce((s, r) => s + r.bill, 0) + maint.total;
   const collected = residential.reduce((s, f) => {
     const w = paidWater[f.flat] ? (water.rows.find((r) => r.flat === f.flat)?.bill || 0) : 0;
     const m = paidMaint[f.flat] ? maint.perFlat : 0;
@@ -502,7 +502,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
                   <span style={{ fontFamily: display, fontWeight: 700, fontSize: 17 }}>{r.flat}</span>
                   <span style={{ fontSize: 12, color: T.muted, marginLeft: 8 }}>{r.meter || ""}</span>
                 </div>
-                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: r.isCommon ? T.muted : T.ink }}>{r.isCommon ? "—" : money(r.bill)}</span>
+                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: T.ink }}>{money(r.bill)}</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13 }}>
                 <div>
@@ -529,7 +529,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
           ))}
           <div style={{ background: "#F7F7FC", borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 14 }}>
             <span>Total used: <span style={{ fontFamily: mono }}>{water.totalCons.toFixed(1)}</span></span>
-            <span style={{ fontFamily: mono }}>{money(water.rows.filter((r) => !r.isCommon).reduce((s, r) => s + r.bill, 0))}</span>
+            <span style={{ fontFamily: mono }}>{money(water.rows.reduce((s, r) => s + r.bill, 0))}</span>
           </div>
         </div>
       ) : (
@@ -573,7 +573,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
                   {canEdit ? <input className="cell" style={{ ...S.cellInput, width: 62 }} type="number" value={r.adj} onChange={(e) => setReading(r.flat, "adj", e.target.value)} />
                     : <span style={S.num}>{r.adj}</span>}
                 </td>}
-                <td style={{ ...S.td, ...S.num, fontWeight: 700, color: r.isCommon ? T.muted : T.ink }}>{r.isCommon ? "—" : money(r.bill)}</td>
+                <td style={{ ...S.td, ...S.num, fontWeight: 700, color: T.ink }}>{money(r.bill)}</td>
               </tr>
             ))}
           </tbody>
@@ -582,7 +582,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
             <td style={{ ...S.tfoot, ...S.num }}>{water.totalCons.toFixed(1)}</td>
             <td style={{ ...S.tfoot, ...S.num }}>100.00</td>
             {adjOn && <td style={S.tfoot}></td>}
-            <td style={{ ...S.tfoot, ...S.num }}>{money(water.rows.filter((r) => !r.isCommon).reduce((s, r) => s + r.bill, 0))}</td>
+            <td style={{ ...S.tfoot, ...S.num }}>{money(water.rows.reduce((s, r) => s + r.bill, 0))}</td>
           </tr></tfoot>
         </table>
         </div>
