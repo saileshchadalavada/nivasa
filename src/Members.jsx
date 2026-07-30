@@ -3,7 +3,7 @@ import { setMemberRoles, adminAssignFlat } from "./data";
 import { styles as S, T } from "./styles";
 
 /* Admin-only: grant/revoke per-building roles, override a member's flat. */
-export default function Members({ bid, members, flats, config, onDeleteBuilding, onImportWater2026, canImportWater2026 }) {
+export default function Members({ bid, members, flats, config, onDeleteBuilding, onImportWater2026, canImportWater2026, mobile }) {
   const flatOptions = flats.filter((f) => !f.isCommon).map((f) => f.flat).sort();
 
   const toggleRole = (u, role) => {
@@ -15,7 +15,44 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
   return (
     <>
       <SectionTitle>Members <span style={S.titleHint}>— assign roles, fix flat if someone picked wrong</span></SectionTitle>
-      <div style={S.tableWrap}>
+      {mobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {members.map((u) => {
+            const isFounder = config?.adminUid === u.uid;
+            const hasRole = isFounder || u.roles?.includes("admin") || u.roles?.includes("treasurer") || u.roles?.includes("water");
+            const typeLabel = u.residentType === "tenant" ? "Tenant" : u.residentType === "owner" ? "Owner" : "";
+            return (
+              <div key={u.uid} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div>
+                    <span style={{ fontWeight: 700, fontSize: 15 }}>{u.username}</span>
+                    {isFounder && <span style={M.badge}>founder</span>}
+                    <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>
+                      {typeLabel || "\u2014"}{!hasRole && <span style={M.memberTag}>view-only</span>}
+                    </div>
+                  </div>
+                  <select className="cell" style={{ ...S.cellSelect, fontSize: 13 }} value={u.flat || ""}
+                    onChange={(e) => adminAssignFlat(bid, u.uid, e.target.value || null, u.flat || null)}>
+                    <option value="">\u2014 none \u2014</option>
+                    {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 60 }}>Treasurer</span>
+                  <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />
+                  <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Water</span>
+                  <Check on={u.roles?.includes("water")} onClick={() => toggleRole(u, "water")} />
+                  <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Admin</span>
+                  {isFounder ? <span style={{ color: T.muted, fontSize: 12 }}>always</span>
+                    : <Check on={u.roles?.includes("admin")} onClick={() => toggleRole(u, "admin")} />}
+                </div>
+              </div>
+            );
+          })}
+          {members.length === 0 && <div style={{ color: T.muted, fontSize: 13, padding: 16 }}>No members yet. Share the invite link.</div>}
+        </div>
+      ) : (
+        <div style={S.tableWrap}>
         <table style={S.table}>
           <thead><tr>
             <th style={S.th}>Username</th>
@@ -36,7 +73,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                   <td style={{ ...S.td, padding: "4px 8px" }}>
                     <select className="cell" style={S.cellSelect} value={u.flat || ""}
                       onChange={(e) => adminAssignFlat(bid, u.uid, e.target.value || null, u.flat || null)}>
-                      <option value="">— none —</option>
+                      <option value="">\u2014 none \u2014</option>
                       {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
                     </select>
                   </td>
@@ -44,7 +81,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                     {(() => {
                       const hasRole = isFounder || u.roles?.includes("admin") || u.roles?.includes("treasurer") || u.roles?.includes("water");
                       const typeLabel = u.residentType === "tenant" ? "Tenant" : u.residentType === "owner" ? "Owner" : "";
-                      return <span>{typeLabel || "—"}{!hasRole && <span style={M.memberTag}>Member · view-only</span>}</span>;
+                      return <span>{typeLabel || "\u2014"}{!hasRole && <span style={M.memberTag}>Member \u00B7 view-only</span>}</span>;
                     })()}
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
@@ -65,7 +102,8 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
             )}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
 
       {canImportWater2026 && (
         <div style={M.tool}>

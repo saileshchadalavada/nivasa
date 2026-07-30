@@ -13,6 +13,18 @@ import CsvUpload from "./CsvUpload";
 import { styles as S, T, css, display, mono, applyTheme } from "./styles";
 import { THEME_LIST, getThemeId, setThemeId } from "./theme";
 
+/* Responsive hook — cards on mobile, table on desktop */
+function useIsMobile(breakpoint = 640) {
+  const [mobile, setMobile] = React.useState(() => typeof window !== "undefined" && window.innerWidth < breakpoint);
+  React.useEffect(() => {
+    const check = () => setMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [breakpoint]);
+  return mobile;
+}
+
+
 export default function Dashboard({
   user, membership, config, bid, flats, members,
   waterMonth, maintMonth, pastWater, pastMaint, patchWater, patchMaint,
@@ -24,6 +36,7 @@ export default function Dashboard({
   onStartWater, onStartMaint, onDeleteWater, onDeleteMaint, canDeleteWater, canDeleteMaint, onDeleteBuilding, onImportWater2026, canImportWater2026, onSignOut,
 }) {
   const uid = user.uid;
+  const mobile = useIsMobile();
   const admin = isAdmin(membership, config, uid);
   const canWater = canEditWater(membership, config, uid);
   const canMaint = canEditMaint(membership, config, uid);
@@ -152,24 +165,24 @@ export default function Dashboard({
     <div style={S.app}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
 
-      <header style={S.header}>
+      <header style={{ ...S.header, ...(mobile ? { padding: "14px 16px", gap: 8 } : {}) }}>
         <div style={S.headLeft}>
-          <div style={{ ...S.mark, background: T.brandDark }}>
+          {!mobile && <div style={{ ...S.mark, background: T.brandDark }}>
             {[5,4,3,2,1].map((fl) => (<div key={fl} style={S.markRow}>{[0,1,2].map((c) => <span key={c} style={S.markDot} />)}</div>))}
-          </div>
+          </div>}
           <div>
             <div style={S.brandRow}>
-              <select value={bid} style={S.switcher}
+              <select value={bid} style={{ ...S.switcher, ...(mobile ? { fontSize: 15, maxWidth: 160 } : {}) }}
                 onChange={(e) => onSwitch(e.target.value)}>
                 {(buildings || []).map((b) => <option key={b.bid} value={b.bid} style={{ color: T.ink, background: "#fff" }}>{b.name}</option>)}
               </select>
-              <button style={S.newBldBtn} onClick={onNewBuilding} title="Create or join another building">＋ Add</button>
+              <button style={S.newBldBtn} onClick={onNewBuilding} title="Create or join another building">＋</button>
             </div>
-            <div style={S.brandSub}>{[config.city, config.state].filter(Boolean).join(", ") || "Shared ledger"} · {nRes} flats</div>
+            {!mobile && <div style={S.brandSub}>{[config.city, config.state].filter(Boolean).join(", ") || "Shared ledger"} · {nRes} flats</div>}
           </div>
         </div>
-        <div style={S.headRight}>
-          {isWaterTab ? (
+        <div style={{ ...S.headRight, ...(mobile ? { gap: 8 } : {}) }}>
+          {!mobile && (isWaterTab ? (
             <div style={S.monthBox}>
               <div style={S.monthPill}>Water · {labelFromStart(waterStart) || "New period"}</div>
               <div style={S.monthRange}>{fmtDate(waterStart)} → {fmtDate(waterEnd)}</div>
@@ -184,35 +197,35 @@ export default function Dashboard({
               <div style={S.monthPill}>Water {dw.label} · Maint {dm.label}</div>
               <div style={S.monthRange}>W {fmtDate(dw.start)}→{fmtDate(dw.end)} · M {fmtDate(dm.start)}→{fmtDate(dm.end)}</div>
             </div>
-          )}
+          ))}
           <div style={S.userBox}>
-            <div style={S.avatar}>{initialsOf(myName)}</div>
+            <div style={{ ...S.avatar, ...(mobile ? { width: 32, height: 32, fontSize: 12 } : {}) }}>{initialsOf(myName)}</div>
             <div style={S.userMeta}>
-              <div style={S.userName}>{myName}</div>
-              <div style={S.userSub}>{roleText(membership, admin, meFlat)}</div>
-              <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+              <div style={{ ...S.userName, ...(mobile ? { fontSize: 13 } : {}) }}>{myName}</div>
+              {!mobile && <div style={S.userSub}>{roleText(membership, admin, meFlat)}</div>}
+              {!mobile && <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
                 {THEME_LIST.map((t) => (
                   <button key={t.id} onClick={() => switchTheme(t.id)} title={t.name}
                     style={{ width: 22, height: 22, borderRadius: "50%", border: themeId === t.id ? "2px solid #fff" : "2px solid transparent",
                       background: t.color, cursor: "pointer", fontSize: 10, padding: 0 }} />
                 ))}
-              </div>
+              </div>}
               <button style={S.signout} onClick={onSignOut}>Sign out</button>
             </div>
           </div>
         </div>
       </header>
 
-      <nav style={S.tabs}>
-        {tabs.map(([k, l]) => (<button key={k} onClick={() => setTab(k)} style={{ ...S.tab, ...(tab === k ? S.tabOn : {}) }}>{l}</button>))}
+      <nav style={{ ...S.tabs, ...(mobile ? { padding: "0 12px", gap: 0 } : {}) }}>
+        {tabs.map(([k, l]) => (<button key={k} onClick={() => setTab(k)} style={{ ...S.tab, ...(tab === k ? S.tabOn : {}), ...(mobile ? { padding: "11px 10px", fontSize: 12.5 } : {}) }}>{l}</button>))}
       </nav>
 
-      <main style={S.main}>
+      <main style={{ ...S.main, ...(mobile ? { padding: "16px 12px" } : {}) }}>
         {tab === "dashboard" && (
           <Overview water={dispWater} maint={dispMaint} paidWater={displayWater?.paidWater || {}} paidMaint={displayMaint?.paidMaint || {}}
             waterPeriod={dw} maintPeriod={dm}
             residential={residential} canWater={canWater} canMaint={canMaint} admin={admin} config={config}
-            togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint} openFlat={setOpenFlat} onShare={shareInvite} />
+            togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint} openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile} />
         )}
         {tab === "water" && (
           <WaterEntry water={water} setField={setWaterField} setReading={setReading} canEdit={canWater}
@@ -222,7 +235,7 @@ export default function Dashboard({
             periods={waterList} selId={selWaterId} onSelect={onSelectWater} isLatest={isLatestWater}
             onPublish={() => setPublish("water")} publishedAt={displayWater?.publishedAt}
             onStartNext={onStartWater} onDeletePeriod={onDeleteWater} canDelete={canDeleteWater}
-            startReady={startReadyWater} saving={saving} flats={flats} />
+            startReady={startReadyWater} saving={saving} flats={flats} mobile={mobile} />
         )}
         {tab === "maintenance" && (
           <Maintenance maint={maint} expenses={maintMonth.expenses || []} setExpenses={setExpenses}
@@ -231,11 +244,11 @@ export default function Dashboard({
             periods={maintList} selId={selMaintId} onSelect={onSelectMaint} isLatest={isLatestMaint}
             onPublish={() => setPublish("maint")} publishedAt={displayMaint?.publishedAt}
             onStartNext={onStartMaint} onDeletePeriod={onDeleteMaint} canDelete={canDeleteMaint}
-            startReady={startReadyMaint} saving={saving} />
+            startReady={startReadyMaint} saving={saving} mobile={mobile} />
         )}
         {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} />}
         {tab === "history" && <History flat={meFlat} residential={residential} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} />}
-        {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} />}
+        {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} />}
       </main>
 
       {openFlat && (
@@ -278,7 +291,7 @@ function roleText(membership, admin, meFlat) {
 }
 
 /* ============================= OVERVIEW ============================= */
-function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare }) {
+function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile }) {
   const billable = water.rows.filter((r) => !r.isCommon).reduce((s, r) => s + r.bill, 0) + maint.total;
   const collected = residential.reduce((s, f) => {
     const w = paidWater[f.flat] ? (water.rows.find((r) => r.flat === f.flat)?.bill || 0) : 0;
@@ -342,7 +355,42 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
       </div>
 
       <SectionTitle>Per-flat statement</SectionTitle>
-      <div style={S.tableWrap}>
+      {mobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {residential.map((f) => {
+            const w = water.rows.find((r) => r.flat === f.flat)?.bill || 0;
+            const owed = maint.byMember[f.flat] || 0;
+            const netDue = w + maint.perFlat - owed;
+            return (
+              <div key={f.flat} onClick={() => openFlat(f.flat)}
+                style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px", cursor: "pointer" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div>
+                    <span style={{ fontFamily: display, fontWeight: 700, fontSize: 16 }}>{f.flat}</span>
+                    <span style={{ fontSize: 13, color: T.inkSoft, marginLeft: 8 }}>{f.name || ""}</span>
+                  </div>
+                  <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: netDue < 0 ? T.money : T.ink }}>
+                    {netDue < 0 ? `+${money(Math.abs(netDue))}` : money(netDue)}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>
+                  <span>Water: <b style={{ color: T.ink }}>{money(w)}</b></span>
+                  <span>Maint: <b style={{ color: T.ink }}>{money(maint.perFlat)}</b>{owed > 0 && <span style={{ color: T.owed }}> −{money(owed)}</span>}</span>
+                </div>
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                    💧 <Paid on={!!paidWater[f.flat]} editable={canWater} onClick={(e) => { e.stopPropagation(); togglePaidWater(f.flat); }} />
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                    🔧 <Paid on={!!paidMaint[f.flat]} editable={canMaint} onClick={(e) => { e.stopPropagation(); togglePaidMaint(f.flat); }} />
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={S.tableWrap}>
         <table style={S.table}>
           <thead><tr>
             <th style={S.th}>Flat</th><th style={S.th}>Name</th>
@@ -371,7 +419,8 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
             })}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
 
       {Object.keys(maint.byMember).length > 0 && (
         <>
@@ -389,7 +438,7 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
 }
 
 /* ============================ WATER ============================ */
-function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodEnd, costs, onSetMeter, onBackfill, showAdj, onToggleAdj, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, flats }) {
+function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodEnd, costs, onSetMeter, onBackfill, showAdj, onToggleAdj, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, flats, mobile }) {
   const anyAdj = water.rows.some((r) => r.adj);
   const adjOn = showAdj || anyAdj;
   const [showScan, setShowScan] = useState(false);
@@ -432,17 +481,60 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
         <span style={S.costTotal}>{money(water.grandTotal)}</span>
       </div>
 
-      <div style={S.periodHead}>
+      <div style={{ ...S.periodHead, ...(mobile ? { flexDirection: "column", alignItems: "stretch", gap: 8 } : {}) }}>
         <SectionTitle>Meter readings</SectionTitle>
         <span style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {canEdit && <label style={{ fontSize: 12.5, color: T.inkSoft, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          {canEdit && !mobile && <label style={{ fontSize: 12.5, color: T.inkSoft, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
             <input type="checkbox" checked={adjOn} disabled={anyAdj} onChange={onToggleAdj} title={anyAdj ? "Shown because an adjustment is set" : "Show the per-flat adjustment column"} /> Adjustment column
           </label>}
-          {canEdit && <button className="add" style={S.addBtn} onClick={() => setShowCsv(true)}>📄 Upload CSV</button>}
-          {canEdit && <button className="add" style={S.addBtn} onClick={() => setShowScan(true)}>📷 Scan meter photos</button>}
+          {canEdit && <button className="add" style={{ ...S.addBtn, ...(mobile ? { marginTop: 0, padding: "8px 12px", fontSize: 12.5 } : {}) }} onClick={() => setShowCsv(true)}>📄 Upload CSV</button>}
+          {canEdit && <button className="add" style={{ ...S.addBtn, ...(mobile ? { marginTop: 0, padding: "8px 12px", fontSize: 12.5 } : {}) }} onClick={() => setShowScan(true)}>📷 Scan</button>}
         </span>
       </div>
-      <div style={S.tableWrap}>
+
+      {mobile ? (
+        /* ---- MOBILE: card layout ---- */
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {water.rows.map((r) => (
+            <div key={r.flat} style={{ background: r.isCommon ? "#F5F8F8" : T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div>
+                  <span style={{ fontFamily: display, fontWeight: 700, fontSize: 17 }}>{r.flat}</span>
+                  <span style={{ fontSize: 12, color: T.muted, marginLeft: 8 }}>{r.meter || ""}</span>
+                </div>
+                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: r.isCommon ? T.muted : T.ink }}>{r.isCommon ? "—" : money(r.bill)}</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, marginBottom: 3 }}>PREVIOUS</div>
+                  <div style={{ fontFamily: mono, color: T.inkSoft }}>{(Number(r.prev) || 0).toFixed(1)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, marginBottom: 3 }}>CURRENT</div>
+                  {canEdit ? (
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <input className="cell" style={{ ...S.cellInput, width: "100%", fontSize: 14 }} type="number" value={r.curr}
+                        onChange={(e) => setReading(r.flat, "curr", e.target.value)} />
+                      <button title="Camera" onClick={() => setCapFlat({ flat: r.flat, meter: r.meter })}
+                        style={{ border: `1px solid ${T.line}`, background: "#fff", borderRadius: 7, width: 34, height: 34, cursor: "pointer", fontSize: 15, flexShrink: 0 }}>📷</button>
+                    </span>
+                  ) : <span style={{ fontFamily: mono }}>{r.curr === "" ? "—" : Number(r.curr).toFixed(1)}</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, color: T.inkSoft }}>
+                <span>Used: <b style={{ fontFamily: mono, color: T.ink }}>{r.cons.toFixed(1)}</b></span>
+                <span>Share: <b style={{ fontFamily: mono, color: T.water }}>{r.pct.toFixed(1)}%</b></span>
+              </div>
+            </div>
+          ))}
+          <div style={{ background: "#F7F7FC", borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 14 }}>
+            <span>Total used: <span style={{ fontFamily: mono }}>{water.totalCons.toFixed(1)}</span></span>
+            <span style={{ fontFamily: mono }}>{money(water.rows.filter((r) => !r.isCommon).reduce((s, r) => s + r.bill, 0))}</span>
+          </div>
+        </div>
+      ) : (
+        /* ---- DESKTOP: table layout ---- */
+        <div style={S.tableWrap}>
         <table style={S.table}>
           <thead><tr>
             <th style={S.th}>Flat</th><th style={S.th}>Meter</th>
@@ -493,7 +585,8 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
             <td style={{ ...S.tfoot, ...S.num }}>{money(water.rows.filter((r) => !r.isCommon).reduce((s, r) => s + r.bill, 0))}</td>
           </tr></tfoot>
         </table>
-      </div>
+        </div>
+      )}
       <p style={S.note}>Common/Watchman counts toward the general-tanker % but carries no Manjeera or connection share. The Previous (opening) reading carries from last period but is editable — override it if a meter was reset or replaced.</p>
       {canEdit && <PublishBar onPublish={onPublish} publishedAt={publishedAt} kind="water" />}
       <PeriodBanner kind="Water" periodStart={periodStart} periodEnd={periodEnd} />
@@ -502,7 +595,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
 }
 
 /* ============================ MAINTENANCE ============================ */
-function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setField, periodStart, periodEnd, onBackfill, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving }) {
+function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setField, periodStart, periodEnd, onBackfill, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, mobile }) {
   const update = (id, key, val) => setExpenses((xs) => xs.map((e) => e.id === id ? { ...e, [key]: val } : e));
   const remove = (id) => setExpenses((xs) => xs.filter((e) => e.id !== id));
   const add = () => setExpenses((xs) => [...xs, { id: "e" + Date.now(), item: "", amount: 0, paidBy: "fund" }]);
@@ -520,8 +613,48 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
         <Card label="Owed to members" value={money(Object.values(maint.byMember).reduce((s, n) => s + n, 0))} tone="owed" note="adhoc expenses fronted" />
       </div>
 
-      <SectionTitle>Expense items {canEdit && <span style={S.titleHint}>— set "Paid by" to a flat when a member fronts the cost</span>}</SectionTitle>
-      <div style={S.tableWrap}>
+      <SectionTitle>Expense items {canEdit && !mobile && <span style={S.titleHint}>— set "Paid by" to a flat when a member fronts the cost</span>}</SectionTitle>
+      {mobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {expenses.map((e) => (
+            <div key={e.id} style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                {canEdit ? (
+                  <input className="cell" style={{ ...S.cellInput, textAlign: "left", width: "100%", fontSize: 14 }} value={e.item} placeholder="e.g. Watchman salary" onChange={(ev) => update(e.id, "item", ev.target.value)} />
+                ) : <span style={{ fontWeight: 600, fontSize: 14 }}>{e.item || "—"}</span>}
+                {canEdit && <button className="del" style={{ ...S.del, fontSize: 16, flexShrink: 0 }} onClick={() => remove(e.id)}>✕</button>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, marginBottom: 3 }}>AMOUNT</div>
+                  {canEdit ? <input className="cell" style={{ ...S.cellInput, width: "100%", fontSize: 14 }} type="number" value={e.amount} onChange={(ev) => update(e.id, "amount", parseFloat(ev.target.value) || 0)} />
+                    : <span style={{ fontFamily: mono, fontWeight: 600 }}>{money(e.amount)}</span>}
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, marginBottom: 3 }}>PAID BY</div>
+                  {canEdit ? <select className="cell" style={{ ...S.cellSelect, width: "100%", fontSize: 13 }} value={e.paidBy} onChange={(ev) => update(e.id, "paidBy", ev.target.value)}>
+                      <option value="fund">Fund</option>
+                      {residential.map((f) => <option key={f.flat} value={f.flat}>Flat {f.flat}</option>)}
+                    </select> : <span>{e.paidBy === "fund" ? "Fund" : `Flat ${e.paidBy}`}</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12.5, color: T.inkSoft }}>
+                {canEdit
+                  ? <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                      <input type="checkbox" checked={!!e.recurring} onChange={(ev) => update(e.id, "recurring", ev.target.checked)} style={{ width: 15, height: 15 }} />
+                      Repeats monthly
+                    </label>
+                  : <span style={{ color: e.recurring ? T.money : T.muted, fontWeight: 600 }}>{e.recurring ? "Monthly" : "One-off"}</span>}
+              </div>
+            </div>
+          ))}
+          <div style={{ background: "#F7F7FC", borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 14 }}>
+            <span>Total</span>
+            <span style={{ fontFamily: mono }}>{money(maint.total)}</span>
+          </div>
+        </div>
+      ) : (
+        <div style={S.tableWrap}>
         <table style={S.table}>
           <thead><tr><th style={S.th}>Item</th><th style={{ ...S.th, textAlign: "right" }}>Amount</th><th style={S.th}>Paid by</th><th style={{ ...S.th, textAlign: "center" }}>Repeats monthly</th>{canEdit && <th style={S.th}></th>}</tr></thead>
           <tbody>
@@ -550,7 +683,8 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
           </tbody>
           <tfoot><tr><td style={S.tfoot}>Total</td><td style={{ ...S.tfoot, ...S.num }}>{money(maint.total)}</td><td style={S.tfoot} colSpan={canEdit ? 3 : 2}></td></tr></tfoot>
         </table>
-      </div>
+        </div>
+      )}
       {canEdit && <button className="add" style={S.addBtn} onClick={add}>+ Add expense</button>}
       {canEdit && <PublishBar onPublish={onPublish} publishedAt={publishedAt} kind="maintenance" />}
       <PeriodBanner kind="Maintenance" periodStart={periodStart} periodEnd={periodEnd} />
