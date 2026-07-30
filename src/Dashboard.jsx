@@ -9,6 +9,7 @@ import Members from "./Members";
 import History from "./History";
 import MeterScan from "./MeterScan";
 import MeterCapture from "./MeterCapture";
+import CsvUpload from "./CsvUpload";
 import { styles as S, T, css, display, mono, applyTheme } from "./styles";
 import { THEME_LIST, getThemeId, setThemeId } from "./theme";
 
@@ -221,7 +222,7 @@ export default function Dashboard({
             periods={waterList} selId={selWaterId} onSelect={onSelectWater} isLatest={isLatestWater}
             onPublish={() => setPublish("water")} publishedAt={displayWater?.publishedAt}
             onStartNext={onStartWater} onDeletePeriod={onDeleteWater} canDelete={canDeleteWater}
-            startReady={startReadyWater} saving={saving} />
+            startReady={startReadyWater} saving={saving} flats={flats} />
         )}
         {tab === "maintenance" && (
           <Maintenance maint={maint} expenses={maintMonth.expenses || []} setExpenses={setExpenses}
@@ -388,10 +389,11 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
 }
 
 /* ============================ WATER ============================ */
-function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodEnd, costs, onSetMeter, onBackfill, showAdj, onToggleAdj, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving }) {
+function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodEnd, costs, onSetMeter, onBackfill, showAdj, onToggleAdj, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, flats }) {
   const anyAdj = water.rows.some((r) => r.adj);
   const adjOn = showAdj || anyAdj;
   const [showScan, setShowScan] = useState(false);
+  const [showCsv, setShowCsv] = useState(false);
   const [capFlat, setCapFlat] = useState(null); // {flat, meter} being captured
   return (
     <>
@@ -404,6 +406,11 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
         <MeterScan meters={water.rows.map((r) => ({ flat: r.flat, meter: r.meter }))}
           onApply={(map) => Object.entries(map).forEach(([flat, val]) => setReading(flat, "curr", String(val)))}
           onClose={() => setShowScan(false)} />
+      )}
+      {showCsv && (
+        <CsvUpload existingFlats={flats}
+          onApply={(map) => Object.entries(map).forEach(([flat, val]) => setReading(flat, "curr", String(val)))}
+          onClose={() => setShowCsv(false)} />
       )}
       {!canEdit && <ViewNote>You have view access. Ask the water in-charge or admin to make changes.</ViewNote>}
       <PeriodControls kind="water" periodStart={periodStart} periodEnd={periodEnd} setField={setField} onBackfill={onBackfill}
@@ -431,6 +438,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
           {canEdit && <label style={{ fontSize: 12.5, color: T.inkSoft, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
             <input type="checkbox" checked={adjOn} disabled={anyAdj} onChange={onToggleAdj} title={anyAdj ? "Shown because an adjustment is set" : "Show the per-flat adjustment column"} /> Adjustment column
           </label>}
+          {canEdit && <button className="add" style={S.addBtn} onClick={() => setShowCsv(true)}>📄 Upload CSV</button>}
           {canEdit && <button className="add" style={S.addBtn} onClick={() => setShowScan(true)}>📷 Scan meter photos</button>}
         </span>
       </div>
