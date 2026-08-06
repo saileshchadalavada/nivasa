@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { money, money2, labelFromStart, fmtDate } from "./util";
+import { money, money2, labelFromStart, fmtDate, daysBetween } from "./util";
 import { buildWaterSnapshot, buildMaintSnapshot } from "./snapshot";
 import { generateWaterPoster, generateMaintPoster, sharePoster, canvasToBlob } from "./poster";
 import { HISTORY, HISTORY_MONTHS } from "./historicalWater";
@@ -169,12 +169,12 @@ export default function Dashboard({
     try { await publishPeriod(bid, coll, id, uid); } catch {}
   };
   const snapshotText = (kind) => kind === "water"
-    ? buildWaterSnapshot({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
-    : buildMaintSnapshot({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, byMember: maint.byMember });
+    ? buildWaterSnapshot({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), startIso: waterStart, endIso: waterEnd, rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
+    : buildMaintSnapshot({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), startIso: maintStart, endIso: maintEnd, expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, byMember: maint.byMember });
 
   const snapshotPoster = (kind) => kind === "water"
-    ? generateWaterPoster({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
-    : generateMaintPoster({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, byMember: maint.byMember });
+    ? generateWaterPoster({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), startIso: waterStart, endIso: waterEnd, rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
+    : generateMaintPoster({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), startIso: maintStart, endIso: maintEnd, expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, byMember: maint.byMember });
 
   const shareInvite = async () => {
     const link = `${window.location.origin}${window.location.pathname}?b=${bid}&join=${config.inviteCode}`;
@@ -833,6 +833,13 @@ function PeriodControls({ kind, periodStart, periodEnd, setField, onBackfill, pe
       <div style={S.inputGrid}>
         <DateField label="From (start of period)" value={periodStart} onChange={setStart} readOnly={!canEdit} />
         <DateField label={isMaint ? "To (end of month)" : "To (meter reading date)"} value={periodEnd} onChange={(v) => setField("periodEnd", v)} readOnly={!canEdit} />
+        {daysBetween(periodStart, periodEnd) != null && (
+          <div style={{ display: "flex", alignItems: "center", paddingTop: 18 }}>
+            <span style={{ background: T.accent + "18", color: T.accent, fontWeight: 700, fontSize: 14, padding: "6px 14px", borderRadius: 20, fontFamily: mono, whiteSpace: "nowrap" }}>
+              {daysBetween(periodStart, periodEnd)} days
+            </span>
+          </div>
+        )}
       </div>
     </>
   );

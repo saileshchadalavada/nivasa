@@ -22,3 +22,11 @@ export const fmtDate = (iso) => {
   const [y, m, d] = iso.split("-");
   return `${d} ${MON[(+m || 1) - 1]} ${y}`;
 };
+
+/* days between two ISO date strings, inclusive of end day */
+export const daysBetween = (startIso, endIso) => {
+  if (!startIso || !endIso) return null;
+  const s = new Date(startIso), e = new Date(endIso);
+  const diff = Math.round((e - s) / (1000 * 60 * 60 * 24));
+  return diff >= 0 ? diff : null;
+};

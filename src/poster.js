@@ -1,6 +1,6 @@
 /* Branded PNG poster for WhatsApp — full detail with all meter readings.
    Canvas-rendered, no server. Indigo header + white table + bold black data. */
-import { money } from "./util";
+import { money, daysBetween } from "./util";
 
 const INDIGO = "#4B3FC0", DARK = "#3B30A0", WHITE = "#FFF", BLACK = "#1A1A2E";
 const GRAY = "#6B7280", LIGHT = "#F6F7FB", GREEN = "#1E7F4C", RED = "#D94343";
@@ -22,7 +22,7 @@ function waterCaption(delta) {
   return `💧 Usage rose ${delta}%. A few mindful habits can bring it back down!`;
 }
 
-export function generateWaterPoster({ name, label, start, end, rows, prevCons, grandTotal, costItems }) {
+export function generateWaterPoster({ name, label, start, end, startIso, endIso, rows, prevCons, grandTotal, costItems }) {
   const all = rows || [];
   const res = all.filter((r) => !r.isCommon);
   const common = all.find((r) => r.isCommon);
@@ -30,6 +30,7 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
   const totalUsed = all.reduce((s, r) => s + (r.cons || 0), 0);
   const prevTotal = Object.values(prevCons || {}).reduce((s, v) => s + v, 0);
   const bldDelta = pctChange(totalUsed, prevTotal);
+  const days = daysBetween(startIso, endIso);
 
   // cost breakdown lines (computed early so we can size the header)
   const costLines = (costItems || []).filter((ci) => ci.total > 0).map((ci) => {
@@ -39,8 +40,8 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
   costLines.push(`Grand total: ${money(grandTotal)}`);
 
   const ROW_H = 34 * DPR, TBL_HDR = 30 * DPR, FOOT_H = 70 * DPR;
-  // header grows with cost lines: base 82px for title+date, then 18px per cost line, plus 10px padding
-  const HDR_H = (82 + costLines.length * 18 + 10) * DPR;
+  // header grows with cost lines: base 82px for title+date, then 20px per cost line, plus 12px padding
+  const HDR_H = (82 + costLines.length * 20 + 12) * DPR;
   const totalH = HDR_H + TBL_HDR + dataRows.length * ROW_H + 38*DPR + FOOT_H + PAD;
 
   const c = document.createElement("canvas"); c.width = W; c.height = totalH;
@@ -52,15 +53,15 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
   grad.addColorStop(0, INDIGO); grad.addColorStop(1, DARK);
   ctx.fillStyle = grad; ctx.fillRect(0, 0, W, HDR_H);
 
-  ctx.fillStyle = WHITE; ctx.font = `bold ${26*DPR}px ${FONT}`;
+  ctx.fillStyle = WHITE; ctx.font = `bold ${28*DPR}px ${FONT}`;
   ctx.textAlign = "left";
   ctx.fillText(`💧 ${name} — Water Bill`, PAD, 36*DPR);
-  ctx.font = `${15*DPR}px ${FONT}`; ctx.globalAlpha = 0.9;
-  ctx.fillText(`${label}  ·  ${start} → ${end}`, PAD, 62*DPR);
+  ctx.font = `${16*DPR}px ${FONT}`; ctx.globalAlpha = 0.9;
+  ctx.fillText(`${label}  ·  ${start} → ${end}${days != null ? `  (${days} days)` : ""}`, PAD, 62*DPR);
 
   // cost breakdown in header
-  ctx.font = `${13*DPR}px ${MONO}`; ctx.globalAlpha = 0.85;
-  costLines.forEach((l, i) => ctx.fillText(l, PAD, (82 + i*18)*DPR));
+  ctx.font = `${14*DPR}px ${MONO}`; ctx.globalAlpha = 0.85;
+  costLines.forEach((l, i) => ctx.fillText(l, PAD, (82 + i*20)*DPR));
   ctx.globalAlpha = 1;
 
   // columns: Flat, Name, Meter, Prev, Curr, Used, %, vsLast, Bill
@@ -71,7 +72,7 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
   let y = HDR_H + 8*DPR;
   // table header
   ctx.fillStyle = INDIGO; ctx.fillRect(PAD, y, W-PAD*2, TBL_HDR);
-  ctx.fillStyle = WHITE; ctx.font = `bold ${11*DPR}px ${FONT}`;
+  ctx.fillStyle = WHITE; ctx.font = `bold ${12*DPR}px ${FONT}`;
   hdrs.forEach((h, i) => {
     ctx.textAlign = aligns[i];
     const tx = aligns[i] === "right" ? cols[i+1] - 6*DPR : cols[i] + 6*DPR;
@@ -94,23 +95,23 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
     vals.forEach((v, i) => {
       if (i === 7) return; // vsLast handled separately for color
       ctx.fillStyle = BLACK;
-      ctx.font = (i===0||i===8) ? `bold ${12*DPR}px ${FONT}` : `${12*DPR}px ${i>=3?MONO:FONT}`;
+      ctx.font = (i===0||i===8) ? `bold ${13*DPR}px ${FONT}` : `${13*DPR}px ${i>=3?MONO:FONT}`;
       ctx.textAlign = aligns[i];
       const tx = aligns[i]==="right" ? cols[i+1]-6*DPR : cols[i]+6*DPR;
       ctx.fillText(String(v), tx, y+22*DPR);
     });
     // vs Last with color
     ctx.fillStyle = d!=null&&d>0 ? RED : d!=null&&d<0 ? GREEN : GRAY;
-    ctx.font = `bold ${11*DPR}px ${MONO}`; ctx.textAlign = "right";
+    ctx.font = `bold ${12*DPR}px ${MONO}`; ctx.textAlign = "right";
     ctx.fillText(arrow(d), cols[8]-6*DPR, y+22*DPR);
     y += ROW_H;
   });
 
   // totals row
   ctx.fillStyle = INDIGO; ctx.fillRect(PAD, y, W-PAD*2, 36*DPR);
-  ctx.fillStyle = WHITE; ctx.font = `bold ${12*DPR}px ${FONT}`; ctx.textAlign = "left";
+  ctx.fillStyle = WHITE; ctx.font = `bold ${13*DPR}px ${FONT}`; ctx.textAlign = "left";
   ctx.fillText("Total", cols[0]+6*DPR, y+24*DPR);
-  ctx.font = `bold ${12*DPR}px ${MONO}`; ctx.textAlign = "right";
+  ctx.font = `bold ${13*DPR}px ${MONO}`; ctx.textAlign = "right";
   ctx.fillText(totalUsed.toFixed(1), cols[6]-6*DPR, y+24*DPR);
   ctx.fillText("100.0", cols[7]-6*DPR, y+24*DPR);
   if (bldDelta!=null) {
@@ -122,17 +123,18 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
 
   // footer
   ctx.fillStyle = LIGHT; ctx.fillRect(0, y, W, FOOT_H);
-  ctx.fillStyle = BLACK; ctx.font = `${14*DPR}px ${FONT}`; ctx.textAlign = "center";
+  ctx.fillStyle = BLACK; ctx.font = `${15*DPR}px ${FONT}`; ctx.textAlign = "center";
   ctx.fillText(waterCaption(bldDelta), W/2, y+28*DPR);
-  ctx.fillStyle = GRAY; ctx.font = `${10*DPR}px ${FONT}`;
+  ctx.fillStyle = GRAY; ctx.font = `${11*DPR}px ${FONT}`;
   ctx.fillText("Generated by Nivasa · Full details in the app", W/2, y+52*DPR);
 
   return c;
 }
 
-export function generateMaintPoster({ name, label, start, end, expenses, total, perFlat, byMember }) {
+export function generateMaintPoster({ name, label, start, end, startIso, endIso, expenses, total, perFlat, byMember }) {
   const items = (expenses||[]).filter((e)=>Number(e.amount)>0);
   const owed = Object.entries(byMember||{});
+  const days = daysBetween(startIso, endIso);
   const ROW_H=32*DPR, HDR_H=100*DPR, TBL_HDR=30*DPR;
   const FOOT_H=(70+(owed.length?owed.length*22:0))*DPR;
   const totalH = HDR_H+TBL_HDR+items.length*ROW_H+38*DPR+FOOT_H+PAD;
@@ -144,10 +146,10 @@ export function generateMaintPoster({ name, label, start, end, expenses, total, 
   const grad=ctx.createLinearGradient(0,0,W,HDR_H);
   grad.addColorStop(0,INDIGO); grad.addColorStop(1,DARK);
   ctx.fillStyle=grad; ctx.fillRect(0,0,W,HDR_H);
-  ctx.fillStyle=WHITE; ctx.font=`bold ${26*DPR}px ${FONT}`; ctx.textAlign="left";
+  ctx.fillStyle=WHITE; ctx.font=`bold ${28*DPR}px ${FONT}`; ctx.textAlign="left";
   ctx.fillText(`🧰 ${name} — Maintenance`, PAD, 40*DPR);
-  ctx.font=`${15*DPR}px ${FONT}`; ctx.globalAlpha=0.9;
-  ctx.fillText(`${label}  ·  ${start} → ${end}`, PAD, 68*DPR);
+  ctx.font=`${16*DPR}px ${FONT}`; ctx.globalAlpha=0.9;
+  ctx.fillText(`${label}  ·  ${start} → ${end}${days != null ? `  (${days} days)` : ""}`, PAD, 68*DPR);
   ctx.globalAlpha=1;
 
   let y=HDR_H+8*DPR;

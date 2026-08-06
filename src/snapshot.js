@@ -1,5 +1,5 @@
 /* WhatsApp text snapshots — full detail matching the Excel register. */
-import { money } from "./util";
+import { money, daysBetween } from "./util";
 
 const kl = (l) => (Number(l || 0) / 1000).toFixed(1);
 const pctChange = (a, b) => (b ? Math.round(((a - b) / b) * 100) : null);
@@ -16,13 +16,14 @@ function waterCaption(delta) {
   return `💧 Usage rose ${delta}%. A few mindful habits can bring it back down!`;
 }
 
-export function buildWaterSnapshot({ name, label, start, end, rows, prevCons, grandTotal, costItems }) {
+export function buildWaterSnapshot({ name, label, start, end, startIso, endIso, rows, prevCons, grandTotal, costItems }) {
   const all = rows || [];
   const res = all.filter((r) => !r.isCommon);
   const common = all.find((r) => r.isCommon);
   const totalUsed = all.reduce((s, r) => s + (r.cons || 0), 0);
   const prevTotal = Object.values(prevCons || {}).reduce((s, v) => s + v, 0);
   const bldDelta = pctChange(totalUsed, prevTotal);
+  const days = daysBetween(startIso, endIso);
 
   const costLines = (costItems || []).filter((ci) => ci.total > 0).map((ci) => {
     const splitLabel = ci.split === "percent" ? "by %" : "equal";
@@ -31,7 +32,7 @@ export function buildWaterSnapshot({ name, label, start, end, rows, prevCons, gr
 
   const lines = [
     `💧 *${name} — Water Bill*`,
-    `*${label}*  ·  ${start} → ${end}`,
+    `*${label}*  ·  ${start} → ${end}${days != null ? `  (${days} days)` : ""}`,
     "",
     ...costLines,
     `*Grand total:* ${money(grandTotal)}`,
@@ -61,13 +62,14 @@ export function buildWaterSnapshot({ name, label, start, end, rows, prevCons, gr
   return lines.join("\n");
 }
 
-export function buildMaintSnapshot({ name, label, start, end, expenses, total, perFlat, byMember }) {
+export function buildMaintSnapshot({ name, label, start, end, startIso, endIso, expenses, total, perFlat, byMember }) {
   const items = (expenses || []).filter((e) => Number(e.amount) > 0);
   const owed = Object.entries(byMember || {});
+  const days = daysBetween(startIso, endIso);
   const tbl = items.map((e) => `${pad(e.item || "—", 26)}${padL(money(e.amount), 9)}`);
   return [
     `🧰 *${name} — Maintenance*`,
-    `*${label}*  ·  ${start} → ${end}`,
+    `*${label}*  ·  ${start} → ${end}${days != null ? `  (${days} days)` : ""}`,
     "",
     "```" + tbl.join("\n") + "```",
     "",
