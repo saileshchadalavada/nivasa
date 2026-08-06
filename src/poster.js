@@ -31,7 +31,16 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
   const prevTotal = Object.values(prevCons || {}).reduce((s, v) => s + v, 0);
   const bldDelta = pctChange(totalUsed, prevTotal);
 
-  const ROW_H = 34 * DPR, HDR_H = 130 * DPR, TBL_HDR = 30 * DPR, FOOT_H = 70 * DPR;
+  // cost breakdown lines (computed early so we can size the header)
+  const costLines = (costItems || []).filter((ci) => ci.total > 0).map((ci) => {
+    const splitLabel = ci.split === "percent" ? "by %" : "equal";
+    return `${ci.label || "Cost"}: ${ci.quantity} × ₹${ci.rate} = ${money(ci.total)} (${splitLabel})`;
+  });
+  costLines.push(`Grand total: ${money(grandTotal)}`);
+
+  const ROW_H = 34 * DPR, TBL_HDR = 30 * DPR, FOOT_H = 70 * DPR;
+  // header grows with cost lines: base 82px for title+date, then 18px per cost line, plus 10px padding
+  const HDR_H = (82 + costLines.length * 18 + 10) * DPR;
   const totalH = HDR_H + TBL_HDR + dataRows.length * ROW_H + 38*DPR + FOOT_H + PAD;
 
   const c = document.createElement("canvas"); c.width = W; c.height = totalH;
@@ -51,11 +60,6 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
 
   // cost breakdown in header
   ctx.font = `${13*DPR}px ${MONO}`; ctx.globalAlpha = 0.85;
-  const costLines = (costItems || []).filter((ci) => ci.total > 0).map((ci) => {
-    const splitLabel = ci.split === "percent" ? "by %" : "equal";
-    return `${ci.label || "Cost"}: ${ci.quantity} × ₹${ci.rate} = ${money(ci.total)} (${splitLabel})`;
-  });
-  costLines.push(`Grand total: ${money(grandTotal)}`);
   costLines.forEach((l, i) => ctx.fillText(l, PAD, (82 + i*18)*DPR));
   ctx.globalAlpha = 1;
 
