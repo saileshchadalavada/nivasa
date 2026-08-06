@@ -21,6 +21,8 @@ const waterCol = (bid) => collection(db, "buildings", bid, "waterPeriods");
 const waterRef = (bid, id) => doc(db, "buildings", bid, "waterPeriods", id);
 const maintCol = (bid) => collection(db, "buildings", bid, "maintPeriods");
 const maintRef = (bid, id) => doc(db, "buildings", bid, "maintPeriods", id);
+const presetsCol = (bid) => collection(db, "buildings", bid, "costPresets");
+const presetRef = (bid, id) => doc(db, "buildings", bid, "costPresets", id);
 
 /* ---- account ---- */
 export const subscribeAccount = (uid, cb) =>
@@ -100,15 +102,38 @@ export const saveWaterPeriod = (bid, id, data) => {
   return setDoc(waterRef(bid, id), { ...body, updatedAt: Date.now() });
 };
 export const deleteWaterPeriod = (bid, id) => deleteDoc(waterRef(bid, id));
-/* new blank water period; opening readings carry from last closing */
+/* ---- COST PRESETS ---- */
+export const subscribeCostPresets = (bid, cb) =>
+  onSnapshot(query(presetsCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+export async function saveCostPreset(bid, preset) {
+  if (preset.id) {
+    const { id, ...body } = preset;
+    await updateDoc(presetRef(bid, id), { ...body, updatedAt: Date.now() });
+    return id;
+  }
+  const ref = doc(presetsCol(bid));
+  await setDoc(ref, { ...preset, createdAt: Date.now(), updatedAt: Date.now() });
+  return ref.id;
+}
+export const deleteCostPreset = (bid, id) => deleteDoc(presetRef(bid, id));
+
+/* new blank water period; opening readings carry from last closing.
+   costItems (if present) carry forward with qty zeroed for re-entry. */
 export async function startNextWaterPeriod(bid, current) {
   const readings = {};
   Object.entries(current.readings || {}).forEach(([flat, r]) => {
     readings[flat] = { prev: r.curr || 0, curr: "", adj: 0 };
   });
+  // carry forward cost item structure (description + rate + split) with qty zeroed
+  const costItems = (current.costItems || []).map((ci) => ({
+    ...ci, quantity: "", id: "ci_" + Math.random().toString(36).slice(2, 8),
+  }));
   const ref = doc(waterCol(bid));
   await setDoc(ref, {
-    periodStart: "", periodEnd: "", genCount: "", genRate: "", manCount: "", manRate: "", connBill: "",
+    periodStart: "", periodEnd: "",
+    // keep legacy fields for backward compat
+    genCount: "", genRate: "", manCount: "", manRate: "", connBill: "",
+    costItems,
     readings, paidWater: {}, createdAt: Date.now(), updatedAt: Date.now(),
   });
   return ref.id;

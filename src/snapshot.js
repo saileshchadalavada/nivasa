@@ -16,23 +16,24 @@ function waterCaption(delta) {
   return `💧 Usage rose ${delta}%. A few mindful habits can bring it back down!`;
 }
 
-export function buildWaterSnapshot({ name, label, start, end, rows, prevCons, grandTotal, genCount, genRate, manCount, manRate, connBill }) {
+export function buildWaterSnapshot({ name, label, start, end, rows, prevCons, grandTotal, costItems }) {
   const all = rows || [];
   const res = all.filter((r) => !r.isCommon);
   const common = all.find((r) => r.isCommon);
   const totalUsed = all.reduce((s, r) => s + (r.cons || 0), 0);
   const prevTotal = Object.values(prevCons || {}).reduce((s, v) => s + v, 0);
   const bldDelta = pctChange(totalUsed, prevTotal);
-  const genCost = (genCount || 0) * (genRate || 0);
-  const manCost = (manCount || 0) * (manRate || 0);
+
+  const costLines = (costItems || []).filter((ci) => ci.total > 0).map((ci) => {
+    const splitLabel = ci.split === "percent" ? "by %" : "equal";
+    return `*${ci.label || "Cost"}:* ${ci.quantity} × ₹${ci.rate} = ${money(ci.total)} (${splitLabel})`;
+  });
 
   const lines = [
     `💧 *${name} — Water Bill*`,
     `*${label}*  ·  ${start} → ${end}`,
     "",
-    `*General tankers:* ${genCount || 0} × ₹${genRate || 0} = ${money(genCost)}`,
-    ...(manCount ? [`*Manjeera tankers:* ${manCount} × ₹${manRate || 0} = ${money(manCost)}`] : []),
-    ...(connBill ? [`*Manjeera connection (HMWSSB):* ${money(connBill)}`] : []),
+    ...costLines,
     `*Grand total:* ${money(grandTotal)}`,
     "",
   ];

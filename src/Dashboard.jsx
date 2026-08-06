@@ -58,7 +58,7 @@ export default function Dashboard({
 
   // reusable calculators
   const computeWater = (M) => {
-    if (!M) return { rows: [], totalCons: 1, rawCons: 0, resCons: 1, genCost: 0, manCost: 0, manEqual: 0, connEqual: 0, grandTotal: 0 };
+    if (!M) return { rows: [], totalCons: 1, rawCons: 0, resCons: 1, costItems: [], grandTotal: 0 };
     const rows = allMeters.map((f) => {
       const r = M.readings?.[f.flat] || { prev: 0, curr: 0, adj: 0 };
       const cons = Math.max(0, (r.curr || 0) - (r.prev || 0));
@@ -66,19 +66,48 @@ export default function Dashboard({
     });
     const rawCons = rows.reduce((s, r) => s + r.cons, 0);
     const totalCons = rawCons || 1;
-    // residential-only consumption — the denominator for splitting cost, so the
-    // common/watchman meter's usage is shared across paying flats (not dropped).
     const resCons = rows.filter((r) => !r.isCommon).reduce((s, r) => s + r.cons, 0) || 1;
-    const genCost = (M.genCount || 0) * (M.genRate || 0);
-    const manCost = (M.manCount || 0) * (M.manRate || 0);
-    const manEqual = manCost / nRes, connEqual = (M.connBill || 0) / nRes;
+
+    // Build costItems: use new flexible array if present, else synthesize from legacy fields
+    let costItems;
+    if (M.costItems && M.costItems.length > 0) {
+      costItems = M.costItems.map((ci) => ({
+        ...ci,
+        quantity: Number(ci.quantity) || 0,
+        rate: Number(ci.rate) || 0,
+        total: (Number(ci.quantity) || 0) * (Number(ci.rate) || 0),
+      }));
+    } else {
+      // Legacy: synthesize costItems from genCount/genRate/manCount/manRate/connBill
+      costItems = [];
+      if ((M.genCount || 0) > 0 || (M.genRate || 0) > 0)
+        costItems.push({ id: "_gen", label: "General tankers", quantity: Number(M.genCount) || 0, rate: Number(M.genRate) || 0, total: (Number(M.genCount) || 0) * (Number(M.genRate) || 0), split: "percent" });
+      if ((M.manCount || 0) > 0 || (M.manRate || 0) > 0)
+        costItems.push({ id: "_man", label: "Manjeera tankers", quantity: Number(M.manCount) || 0, rate: Number(M.manRate) || 0, total: (Number(M.manCount) || 0) * (Number(M.manRate) || 0), split: "equal" });
+      if ((M.connBill || 0) > 0)
+        costItems.push({ id: "_conn", label: "Manjeera connection (HMWSSB)", quantity: 1, rate: Number(M.connBill) || 0, total: Number(M.connBill) || 0, split: "equal" });
+    }
+
+    const grandTotal = costItems.reduce((s, ci) => s + ci.total, 0);
+
+    // Per-flat billing: each cost item split independently by its method
     const detailed = rows.map((r) => {
-      const pct = (r.cons / totalCons) * 100; // usage share of the whole building (incl. common) — sums to 100
-      const genShare = (r.cons / totalCons) * genCost; // split by % of total building use (incl. common) — matches the Excel register
-      return { ...r, pct, genShare, manEqual: r.isCommon ? 0 : manEqual, connEqual: r.isCommon ? 0 : connEqual,
-        bill: r.isCommon ? genShare : genShare + manEqual + connEqual + (r.adj || 0) };
+      const pct = (r.cons / totalCons) * 100;
+      let bill = 0;
+      const itemShares = costItems.map((ci) => {
+        let share = 0;
+        if (ci.split === "percent") {
+          share = (r.cons / totalCons) * ci.total;
+        } else {
+          // equal — only residential flats pay
+          share = r.isCommon ? 0 : ci.total / nRes;
+        }
+        return { id: ci.id, label: ci.label, share };
+      });
+      bill = itemShares.reduce((s, is) => s + is.share, 0) + (r.isCommon ? 0 : (r.adj || 0));
+      return { ...r, pct, itemShares, bill };
     });
-    return { rows: detailed, totalCons, rawCons, resCons, genCost, manCost, manEqual, connEqual, grandTotal: genCost + manCost + (M.connBill || 0) };
+    return { rows: detailed, totalCons, rawCons, resCons, costItems, grandTotal };
   };
   const computeMaint = (M) => {
     const exp = (M && M.expenses) || [];
@@ -97,7 +126,7 @@ export default function Dashboard({
 
   const waterStart = waterMonth.periodStart || "", waterEnd = waterMonth.periodEnd || "";
   const maintStart = maintMonth.periodStart || "", maintEnd = maintMonth.periodEnd || "";
-  const startReadyWater = !!waterStart && !!waterEnd && !waterDirty && water.grandTotal > 0 && water.rawCons > 0;
+  const startReadyWater = !!waterStart && !!waterEnd && !waterDirty && water.grandTotal > 0 && water.rawCons > 0 && water.costItems.length > 0;
   const startReadyMaint = !!maintStart && !!maintEnd && !maintDirty && maint.total > 0;
 
   // current-bill date ranges for the header + Overview
@@ -139,13 +168,12 @@ export default function Dashboard({
     const id = kind === "water" ? waterMonth.id : maintMonth.id;
     try { await publishPeriod(bid, coll, id, uid); } catch {}
   };
-  const wCosts = { genCount: Number(waterMonth.genCount)||0, genRate: Number(waterMonth.genRate)||0, manCount: Number(waterMonth.manCount)||0, manRate: Number(waterMonth.manRate)||0, connBill: Number(waterMonth.connBill)||0 };
   const snapshotText = (kind) => kind === "water"
-    ? buildWaterSnapshot({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, ...wCosts })
+    ? buildWaterSnapshot({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
     : buildMaintSnapshot({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, byMember: maint.byMember });
 
   const snapshotPoster = (kind) => kind === "water"
-    ? generateWaterPoster({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, ...wCosts })
+    ? generateWaterPoster({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
     : generateMaintPoster({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, byMember: maint.byMember });
 
   const shareInvite = async () => {
@@ -230,7 +258,8 @@ export default function Dashboard({
         {tab === "water" && (
           <WaterEntry water={water} setField={setWaterField} setReading={setReading} canEdit={canWater}
             periodStart={waterStart} periodEnd={waterEnd}
-            costs={{ genCount: waterMonth.genCount, genRate: waterMonth.genRate, manCount: waterMonth.manCount, manRate: waterMonth.manRate, connBill: waterMonth.connBill }}
+            costItems={waterMonth.costItems || []}
+            onSetCostItems={(items) => patchWater((m) => ({ ...m, costItems: items }))}
             onSetMeter={onSetMeter} onBackfill={onBackfillWater} showAdj={showAdj} onToggleAdj={onToggleAdj}
             periods={waterList} selId={selWaterId} onSelect={onSelectWater} isLatest={isLatestWater}
             onPublish={() => setPublish("water")} publishedAt={displayWater?.publishedAt}
@@ -330,7 +359,7 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
         </div>
       </div>
       <div style={S.cards}>
-        <Card label="Water this period" value={money(water.grandTotal)} tone="water" note="tankers + Manjeera + connection" />
+        <Card label="Water this period" value={money(water.grandTotal)} tone="water" note={water.costItems.length ? water.costItems.map((ci) => ci.label || "cost").join(" + ") : "no costs entered"} />
         <Card label="Maintenance this period" value={money(maint.total)} tone="ink" note={`${money(maint.perFlat)} per flat`} />
         <Card label="Total billable" value={money(billable)} tone="ink" note={`water + maintenance, ${residential.length} flats`} />
         <Card label="Collected" value={money(collected)} tone="money" note={`${Math.round((collected / (billable || 1)) * 100)}% of billable`} />
@@ -438,12 +467,25 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
 }
 
 /* ============================ WATER ============================ */
-function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodEnd, costs, onSetMeter, onBackfill, showAdj, onToggleAdj, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, flats, mobile }) {
+function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodEnd, costItems, onSetCostItems, onSetMeter, onBackfill, showAdj, onToggleAdj, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, flats, mobile }) {
   const anyAdj = water.rows.some((r) => r.adj);
   const adjOn = showAdj || anyAdj;
   const [showScan, setShowScan] = useState(false);
   const [showCsv, setShowCsv] = useState(false);
   const [capFlat, setCapFlat] = useState(null); // {flat, meter} being captured
+
+  // Cost items editor helpers
+  const addCostItem = () => {
+    const id = "ci_" + Math.random().toString(36).slice(2, 8);
+    onSetCostItems([...costItems, { id, label: "", quantity: "", rate: "", split: "equal" }]);
+  };
+  const updateCostItem = (id, key, val) => {
+    onSetCostItems(costItems.map((ci) => ci.id === id ? { ...ci, [key]: val } : ci));
+  };
+  const removeCostItem = (id) => {
+    onSetCostItems(costItems.filter((ci) => ci.id !== id));
+  };
+
   return (
     <>
       {capFlat && (
@@ -467,18 +509,59 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
         canEdit={canEdit} onStartNext={onStartNext} onDeletePeriod={onDeletePeriod} canDelete={canDelete} startReady={startReady} saving={saving} />
 
       <SectionTitle>This period's water costs</SectionTitle>
-      <div style={S.inputGrid}>
-        <NumField label="General tankers" sub="split by meter %" value={costs.genCount} onChange={(v) => setField("genCount", v)} readOnly={!canEdit} />
-        <NumField label="General rate / tanker" prefix="₹" value={costs.genRate} onChange={(v) => setField("genRate", v)} readOnly={!canEdit} />
-        <NumField label="Manjeera tankers" sub="split equally" value={costs.manCount} onChange={(v) => setField("manCount", v)} readOnly={!canEdit} />
-        <NumField label="Manjeera rate / tanker" prefix="₹" value={costs.manRate} onChange={(v) => setField("manRate", v)} readOnly={!canEdit} />
-        <NumField label="Manjeera connection (HMWSSB)" sub="split equally" prefix="₹" step="0.01" value={costs.connBill} onChange={(v) => setField("connBill", v)} readOnly={!canEdit} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {costItems.map((ci) => {
+          const lineTotal = (Number(ci.quantity) || 0) * (Number(ci.rate) || 0);
+          return (
+            <div key={ci.id} style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: mobile ? "12px 12px" : "12px 16px" }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <label style={{ ...S.field, flex: "2 1 160px", minWidth: 0 }}>
+                  <span style={S.fieldLabel}>Description</span>
+                  <input className="cell" style={S.fieldInput} value={ci.label || ""} placeholder="e.g. Private Tanker"
+                    readOnly={!canEdit} onChange={(e) => updateCostItem(ci.id, "label", e.target.value)} />
+                </label>
+                <label style={{ ...S.field, flex: "0 0 72px" }}>
+                  <span style={S.fieldLabel}>Qty</span>
+                  <input className="cell" style={S.fieldInput} type="number" value={ci.quantity} readOnly={!canEdit}
+                    onChange={(e) => updateCostItem(ci.id, "quantity", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} />
+                </label>
+                <label style={{ ...S.field, flex: "0 0 100px" }}>
+                  <span style={S.fieldLabel}>Rate (₹)</span>
+                  <input className="cell" style={S.fieldInput} type="number" value={ci.rate} readOnly={!canEdit}
+                    onChange={(e) => updateCostItem(ci.id, "rate", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} />
+                </label>
+                <div style={{ ...S.field, flex: "0 0 90px" }}>
+                  <span style={S.fieldLabel}>Total</span>
+                  <div style={{ ...S.fieldInput, background: "#F6F9F8", display: "flex", alignItems: "center", fontWeight: 700, fontFamily: mono }}>{money(lineTotal)}</div>
+                </div>
+                <label style={{ ...S.field, flex: "0 0 130px" }}>
+                  <span style={S.fieldLabel}>Split by</span>
+                  <select style={{ ...S.fieldInput, fontFamily: "inherit", fontSize: 14 }} value={ci.split || "equal"} disabled={!canEdit}
+                    onChange={(e) => updateCostItem(ci.id, "split", e.target.value)}>
+                    <option value="percent">% Utilization</option>
+                    <option value="equal">Equally</option>
+                  </select>
+                </label>
+                {canEdit && (
+                  <button className="del" onClick={() => removeCostItem(ci.id)} title="Remove"
+                    style={{ border: "none", background: "none", cursor: "pointer", fontSize: 18, color: T.muted, padding: "4px 8px", marginBottom: 4 }}>✕</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {canEdit && (
+          <button className="add" style={{ ...S.addBtn, alignSelf: "flex-start" }} onClick={addCostItem}>+ Add cost item</button>
+        )}
       </div>
       <div style={S.costStrip}>
-        <span>General <b style={S.num}>{money(water.genCost)}</b></span><span style={S.plus}>+</span>
-        <span>Manjeera tankers <b style={S.num}>{money(water.manCost)}</b></span><span style={S.plus}>+</span>
-        <span>Connection <b style={S.num}>{money2(costs.connBill || 0)}</b></span><span style={S.plus}>=</span>
-        <span style={S.costTotal}>{money(water.grandTotal)}</span>
+        {water.costItems.map((ci, i) => (
+          <React.Fragment key={ci.id || i}>
+            {i > 0 && <span style={S.plus}>+</span>}
+            <span>{ci.label || "Untitled"} <b style={S.num}>{money(ci.total)}</b></span>
+          </React.Fragment>
+        ))}
+        {water.costItems.length > 0 && <><span style={S.plus}>=</span><span style={S.costTotal}>{money(water.grandTotal)}</span></>}
       </div>
 
       <div style={{ ...S.periodHead, ...(mobile ? { flexDirection: "column", alignItems: "stretch", gap: 8 } : {}) }}>
@@ -793,9 +876,9 @@ function FlatStatement({ flat, water, maint, residential, embedded }) {
         <div style={S.stTotalBox}><div style={S.stTotalLabel}>{net < 0 ? "Owed to you" : "Total due"}</div><div style={S.stTotal}>{money(Math.abs(net))}</div></div>
       </div>
       <div style={S.stGroup}>Water — {money(w.bill)}</div>
-      <Line label="General tankers" sub={`${w.pct.toFixed(2)}% of building use`} val={w.genShare} />
-      <Line label="Manjeera tankers" sub="equal share" val={w.manEqual} />
-      <Line label="Manjeera connection" sub="equal share" val={w.connEqual} />
+      {(w.itemShares || []).map((is) => (
+        <Line key={is.id} label={is.label || "Water cost"} sub={is.share === 0 ? "—" : undefined} val={is.share} />
+      ))}
       {w.adj !== 0 && <Line label="Adjustment" val={w.adj} />}
       <div style={S.stGroup}>Maintenance — {money(maint.perFlat)}</div>
       <Line label="Common maintenance" sub={`${money(maint.total)} total ÷ ${residential.length}`} val={maint.perFlat} />

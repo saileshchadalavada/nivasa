@@ -22,7 +22,7 @@ function waterCaption(delta) {
   return `💧 Usage rose ${delta}%. A few mindful habits can bring it back down!`;
 }
 
-export function generateWaterPoster({ name, label, start, end, rows, prevCons, grandTotal, genCount, genRate, manCount, manRate, connBill }) {
+export function generateWaterPoster({ name, label, start, end, rows, prevCons, grandTotal, costItems }) {
   const all = rows || [];
   const res = all.filter((r) => !r.isCommon);
   const common = all.find((r) => r.isCommon);
@@ -30,8 +30,6 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
   const totalUsed = all.reduce((s, r) => s + (r.cons || 0), 0);
   const prevTotal = Object.values(prevCons || {}).reduce((s, v) => s + v, 0);
   const bldDelta = pctChange(totalUsed, prevTotal);
-  const genCost = (genCount || 0) * (genRate || 0);
-  const manCost = (manCount || 0) * (manRate || 0);
 
   const ROW_H = 34 * DPR, HDR_H = 130 * DPR, TBL_HDR = 30 * DPR, FOOT_H = 70 * DPR;
   const totalH = HDR_H + TBL_HDR + dataRows.length * ROW_H + 38*DPR + FOOT_H + PAD;
@@ -53,9 +51,10 @@ export function generateWaterPoster({ name, label, start, end, rows, prevCons, g
 
   // cost breakdown in header
   ctx.font = `${13*DPR}px ${MONO}`; ctx.globalAlpha = 0.85;
-  const costLines = [`General: ${genCount||0} tankers × ₹${genRate||0} = ${money(genCost)}`];
-  if (manCount) costLines.push(`Manjeera tankers: ${manCount} × ₹${manRate||0} = ${money(manCost)}`);
-  if (connBill) costLines.push(`HMWSSB connection: ${money(connBill)}`);
+  const costLines = (costItems || []).filter((ci) => ci.total > 0).map((ci) => {
+    const splitLabel = ci.split === "percent" ? "by %" : "equal";
+    return `${ci.label || "Cost"}: ${ci.quantity} × ₹${ci.rate} = ${money(ci.total)} (${splitLabel})`;
+  });
   costLines.push(`Grand total: ${money(grandTotal)}`);
   costLines.forEach((l, i) => ctx.fillText(l, PAD, (82 + i*18)*DPR));
   ctx.globalAlpha = 1;

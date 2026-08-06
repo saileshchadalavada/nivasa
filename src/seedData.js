@@ -134,10 +134,22 @@ export function buildSeedWater(flats, prefill = false) {
   });
   if (prefill) return {
     periodStart: "2026-06-06", periodEnd: "2026-07-08",
+    // legacy fields kept for backward compat
     genCount: 22, genRate: 1500, manCount: 10, manRate: 550, connBill: 1922.5,
+    // new flexible cost items
+    costItems: [
+      { id: "ci_gen", label: "General tankers", quantity: 22, rate: 1500, split: "percent" },
+      { id: "ci_man", label: "Manjeera tankers", quantity: 10, rate: 550, split: "equal" },
+      { id: "ci_conn", label: "Manjeera connection (HMWSSB)", quantity: 1, rate: 1922.5, split: "equal" },
+    ],
     readings, paidWater: {},
   };
-  return { periodStart: "", periodEnd: "", genCount: "", genRate: "", manCount: "", manRate: "", connBill: "", readings, paidWater: {} };
+  return {
+    periodStart: "", periodEnd: "",
+    genCount: "", genRate: "", manCount: "", manRate: "", connBill: "",
+    costItems: [],
+    readings, paidWater: {},
+  };
 }
 
 /* Starter MAINTENANCE period. Prefill seeds June 1–30 + sample expenses;

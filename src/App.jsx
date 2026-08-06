@@ -189,7 +189,8 @@ export default function App() {
   const startWater = async () => {
     if (waterDirty) { alert("Save your water changes before starting the next water period."); return; }
     if (!currentWater.periodStart || !currentWater.periodEnd) { alert("Fill in and save this water period's dates first."); return; }
-    const hasCost = (Number(currentWater.genCount) || 0) > 0 || (Number(currentWater.manCount) || 0) > 0 || (Number(currentWater.connBill) || 0) > 0;
+    const hasCostItems = (currentWater.costItems || []).some((ci) => (Number(ci.quantity) || 0) > 0 && (Number(ci.rate) || 0) > 0);
+    const hasCost = hasCostItems || (Number(currentWater.genCount) || 0) > 0 || (Number(currentWater.manCount) || 0) > 0 || (Number(currentWater.connBill) || 0) > 0;
     const hasReads = Object.values(currentWater.readings || {}).some((r) => r.curr !== "" && r.curr != null && Number(r.curr) > (Number(r.prev) || 0));
     if (!hasCost || !hasReads) { alert("Enter this period's tanker costs and meter readings before starting the next one."); return; }
     setSaving(true);
