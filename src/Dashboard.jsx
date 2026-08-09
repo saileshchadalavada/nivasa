@@ -722,10 +722,10 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
         )}
         <div style={S.card}>
           <div style={S.cardLabel}>{(() => {
-            const sorted = [...periods].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-            const idx = sorted.findIndex((p) => p.id === selId);
-            const prev = idx > 0 ? sorted[idx - 1] : null;
-            const prevLabel = prev && prev.periodStart ? labelFromStart(prev.periodStart) : "previous";
+            const sorted = [...periods].filter((p) => p.periodStart).sort((a, b) => a.periodStart.localeCompare(b.periodStart));
+            const curStart = sorted.find((p) => p.id === selId)?.periodStart || "";
+            const prev = sorted.filter((p) => p.periodStart < curStart).pop();
+            const prevLabel = prev ? labelFromStart(prev.periodStart) : "previous";
             return maint.carryForward >= 0 ? `Carry from ${prevLabel}` : `Deficit from ${prevLabel}`;
           })()}</div>
           {canEdit ? (
