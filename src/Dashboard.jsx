@@ -114,7 +114,12 @@ export default function Dashboard({
     const total = exp.reduce((s, e) => s + Number(e.amount || 0), 0);
     const byMember = {};
     exp.forEach((e) => { if (e.paidBy && e.paidBy !== "fund") byMember[e.paidBy] = (byMember[e.paidBy] || 0) + Number(e.amount || 0); });
-    return { total, perFlat: total / nRes, byMember };
+    const calculated = nRes ? total / nRes : 0;
+    const charge = (M && M.chargePerFlat != null && M.chargePerFlat !== "") ? Number(M.chargePerFlat) : null;
+    const perFlat = charge != null ? charge : calculated;
+    const surplus = charge != null ? (charge - calculated) * nRes : 0;
+    const carryForward = Number((M && M.carryForward) || 0);
+    return { total, perFlat, calculated, charge, surplus, carryForward, byMember };
   };
 
   // edited period (Water/Maintenance tabs)
@@ -692,8 +697,35 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
 
       <div style={S.cards}>
         <Card label="Total spent" value={money(maint.total)} tone="ink" note={`${expenses.length} line items`} />
-        <Card label="Per flat" value={money(maint.perFlat)} tone="water" note={`total ÷ ${residential.length} flats`} />
+        <Card label="Calculated split" value={money(maint.calculated)} tone="ink" note={`₹${Math.round(maint.total)} ÷ ${residential.length} flats`} />
+        <div style={S.card}>
+          <div style={S.cardLabel}>Charge per flat</div>
+          {canEdit ? (
+            <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 22, fontWeight: 700, fontFamily: mono, color: T.water, width: "100%", textAlign: "center", padding: "6px 8px" }}
+              value={maint.charge != null ? maint.charge : ""}
+              placeholder={String(Math.round(maint.calculated))}
+              onChange={(e) => {
+                const v = e.target.value;
+                setField("chargePerFlat", v === "" ? null : Number(v));
+              }} />
+          ) : (
+            <div style={{ ...S.cardValue, color: T.water, fontSize: 24 }}>{money(maint.perFlat)}</div>
+          )}
+          <div style={S.cardNote}>{maint.charge != null ? "custom amount" : "using calculated split"}</div>
+        </div>
         <Card label="Owed to members" value={money(Object.values(maint.byMember).reduce((s, n) => s + n, 0))} tone="owed" note="adhoc expenses fronted" />
+        {maint.surplus !== 0 && (
+          <Card label={maint.surplus > 0 ? "Surplus this period" : "Deficit this period"}
+            value={money(Math.abs(maint.surplus))}
+            tone={maint.surplus > 0 ? "money" : "owed"}
+            note={maint.surplus > 0 ? `collecting ₹${Math.round(maint.perFlat - maint.calculated)} extra per flat` : `collecting ₹${Math.round(maint.calculated - maint.perFlat)} less per flat`} />
+        )}
+        {maint.carryForward !== 0 && (
+          <Card label={maint.carryForward > 0 ? "Carry from previous" : "Deficit from previous"}
+            value={money(Math.abs(maint.carryForward))}
+            tone={maint.carryForward > 0 ? "money" : "owed"}
+            note={maint.carryForward > 0 ? "surplus brought forward" : "shortfall brought forward"} />
+        )}
       </div>
 
       <SectionTitle>Expense items {canEdit && !mobile && <span style={S.titleHint}>— set "Paid by" to a flat when a member fronts the cost</span>}</SectionTitle>
