@@ -699,7 +699,7 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
         <Card label="Total spent" value={money(maint.total)} tone="ink" note={`${expenses.length} line items`} />
         <Card label="Calculated split" value={money(maint.calculated)} tone="ink" note={`₹${Math.round(maint.total)} ÷ ${residential.length} flats`} />
         <div style={S.card}>
-          <div style={S.cardLabel}>Charge per flat</div>
+          <div style={S.cardLabel}>Amount collected per flat</div>
           {canEdit ? (
             <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 22, fontWeight: 700, fontFamily: mono, color: T.water, width: "100%", textAlign: "center", padding: "6px 8px" }}
               value={maint.charge != null ? maint.charge : ""}
@@ -720,12 +720,27 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
             tone={maint.surplus > 0 ? "money" : "owed"}
             note={maint.surplus > 0 ? `collecting ₹${Math.round(maint.perFlat - maint.calculated)} extra per flat` : `collecting ₹${Math.round(maint.calculated - maint.perFlat)} less per flat`} />
         )}
-        {maint.carryForward !== 0 && (
-          <Card label={maint.carryForward > 0 ? "Carry from previous" : "Deficit from previous"}
-            value={money(Math.abs(maint.carryForward))}
-            tone={maint.carryForward > 0 ? "money" : "owed"}
-            note={maint.carryForward > 0 ? "surplus brought forward" : "shortfall brought forward"} />
-        )}
+        <div style={S.card}>
+          <div style={S.cardLabel}>{(() => {
+            const sorted = [...periods].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+            const idx = sorted.findIndex((p) => p.id === selId);
+            const prev = idx > 0 ? sorted[idx - 1] : null;
+            const prevLabel = prev && prev.periodStart ? labelFromStart(prev.periodStart) : "previous";
+            return maint.carryForward >= 0 ? `Carry from ${prevLabel}` : `Deficit from ${prevLabel}`;
+          })()}</div>
+          {canEdit ? (
+            <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 22, fontWeight: 700, fontFamily: mono, color: maint.carryForward >= 0 ? T.money : T.owed, width: "100%", textAlign: "center", padding: "6px 8px" }}
+              value={maint.carryForward || ""}
+              placeholder="0"
+              onChange={(e) => {
+                const v = e.target.value;
+                setField("carryForward", v === "" ? 0 : Number(v));
+              }} />
+          ) : (
+            <div style={{ ...S.cardValue, color: maint.carryForward >= 0 ? T.money : T.owed, fontSize: 24 }}>{money(Math.abs(maint.carryForward))}</div>
+          )}
+          <div style={S.cardNote}>{maint.carryForward ? (maint.carryForward > 0 ? "surplus brought forward" : "shortfall brought forward") : "no carry — auto-set on next period"}</div>
+        </div>
       </div>
 
       <SectionTitle>Expense items {canEdit && !mobile && <span style={S.titleHint}>— set "Paid by" to a flat when a member fronts the cost</span>}</SectionTitle>
