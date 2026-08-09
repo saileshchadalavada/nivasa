@@ -1,5 +1,5 @@
 import React from "react";
-import { setMemberRoles, adminAssignFlat } from "./data";
+import { setMemberRoles, adminAssignFlat, updateMembership } from "./data";
 import { styles as S, T } from "./styles";
 
 /* Admin-only: grant/revoke per-building roles, override a member's flat. */
@@ -37,6 +37,11 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                     {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
                   </select>
                 </div>
+                <div style={{ marginBottom: 8 }}>
+                  <input className="cell" style={{ ...S.cellInput, width: "100%", fontSize: 13 }}
+                    value={u.phone || ""} placeholder="Phone number"
+                    onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
+                </div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                   <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 60 }}>Treasurer</span>
                   <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />
@@ -57,6 +62,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
           <thead><tr>
             <th style={S.th}>Username</th>
             <th style={S.th}>Flat</th>
+            <th style={S.th}>Phone</th>
             <th style={S.th}>Type</th>
             <th style={{ ...S.th, textAlign: "center" }}>Treasurer</th>
             <th style={{ ...S.th, textAlign: "center" }}>Water in-charge</th>
@@ -76,6 +82,11 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                       <option value="">\u2014 none \u2014</option>
                       {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
                     </select>
+                  </td>
+                  <td style={{ ...S.td, padding: "4px 8px" }}>
+                    <input className="cell" style={{ ...S.cellInput, width: 130, fontSize: 12.5 }}
+                      value={u.phone || ""} placeholder="+91..."
+                      onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
                   </td>
                   <td style={{ ...S.td, textTransform: "capitalize", color: T.inkSoft }}>
                     {(() => {
@@ -98,7 +109,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
               );
             })}
             {members.length === 0 && (
-              <tr><td style={{ ...S.td, color: T.muted }} colSpan={6}>No members yet. Share the invite link.</td></tr>
+              <tr><td style={{ ...S.td, color: T.muted }} colSpan={7}>No members yet. Share the invite link.</td></tr>
             )}
           </tbody>
         </table>

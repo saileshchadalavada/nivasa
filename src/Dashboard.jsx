@@ -10,6 +10,7 @@ import History from "./History";
 import MeterScan from "./MeterScan";
 import MeterCapture from "./MeterCapture";
 import CsvUpload from "./CsvUpload";
+import Broadcast from "./Broadcast";
 import { styles as S, T, css, display, mono, applyTheme } from "./styles";
 import { THEME_LIST, getThemeId, setThemeId } from "./theme";
 
@@ -50,6 +51,7 @@ export default function Dashboard({
 
   const [tab, setTab] = useState("dashboard");
   const [openFlat, setOpenFlat] = useState(null);
+  const [showBroadcast, setShowBroadcast] = useState(false);
   const [publish, setPublish] = useState(null);
   const [themeId, _setTheme] = useState(getThemeId());
   const switchTheme = (id) => { setThemeId(id); applyTheme(id); _setTheme(id); document.body.style.background = T.bg; }; // "water" | "maint" | null
@@ -258,7 +260,8 @@ export default function Dashboard({
           <Overview water={dispWater} maint={dispMaint} paidWater={displayWater?.paidWater || {}} paidMaint={displayMaint?.paidMaint || {}}
             waterPeriod={dw} maintPeriod={dm}
             residential={residential} canWater={canWater} canMaint={canMaint} admin={admin} config={config}
-            togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint} openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile} />
+            togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint} openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile}
+            onBroadcast={() => setShowBroadcast(true)} />
         )}
         {tab === "water" && (
           <WaterEntry water={water} setField={setWaterField} setReading={setReading} canEdit={canWater}
@@ -325,7 +328,7 @@ function roleText(membership, admin, meFlat) {
 }
 
 /* ============================= OVERVIEW ============================= */
-function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile }) {
+function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile, onBroadcast }) {
   const billable = water.rows.reduce((s, r) => s + r.bill, 0) + maint.total;
   const collected = residential.reduce((s, f) => {
     const w = paidWater[f.flat] ? (water.rows.find((r) => r.flat === f.flat)?.bill || 0) : 0;
@@ -347,6 +350,13 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
         <div style={S.inviteBar}>
           <span>Invite code <b style={{ fontFamily: "monospace" }}>{config.inviteCode}</b> — share so neighbours can join.</span>
           <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "7px 14px" }} onClick={onShare}>Share on WhatsApp</button>
+        </div>
+      )}
+
+      {admin && (
+        <div style={{ ...S.inviteBar, marginTop: 0, background: "#E8F6EE", borderColor: T.money }}>
+          <span>📢 Send bills to all residents via WhatsApp or copy messages.</span>
+          <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "7px 14px", background: T.money }} onClick={onBroadcast}>Broadcast bills</button>
         </div>
       )}
 

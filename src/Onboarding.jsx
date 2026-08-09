@@ -8,6 +8,7 @@ export default function Onboarding({ bid, uid, username, flats, config, onDone, 
   const [name, setName] = useState("");
   const [meter, setMeter] = useState("");
   const [residentType, setResidentType] = useState("owner");
+  const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -27,7 +28,7 @@ export default function Onboarding({ bid, uid, username, flats, config, onDone, 
     try {
       await claimFlatWithDetails(bid, picked, uid, { name: name.trim(), meter: meter.trim() });
       await setMemberFlat(bid, uid, picked);
-      await updateMembership(bid, uid, { residentType });
+      await updateMembership(bid, uid, { residentType, phone: phone.trim() || null });
       onDone();
     } catch (e) { setErr("Couldn't save — that flat may have just been claimed."); setBusy(false); }
   };
@@ -67,6 +68,9 @@ export default function Onboarding({ bid, uid, username, flats, config, onDone, 
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" style={O.input} />
               <label style={O.label}>Water meter number</label>
               <input value={meter} onChange={(e) => setMeter(e.target.value)} placeholder="e.g. 4786/22" style={{ ...O.input, fontFamily: "monospace" }} />
+              <label style={O.label}>Phone number (for bill notifications)</label>
+              <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d+\- ]/g, ""))}
+                placeholder="+91 98765 43210" inputMode="tel" style={{ ...O.input, fontFamily: "monospace" }} />
               <label style={O.label}>You are the</label>
               <div style={{ display: "flex", gap: 8 }}>
                 {["owner", "tenant"].map((t) => (
