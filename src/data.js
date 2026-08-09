@@ -21,6 +21,8 @@ const waterCol = (bid) => collection(db, "buildings", bid, "waterPeriods");
 const waterRef = (bid, id) => doc(db, "buildings", bid, "waterPeriods", id);
 const maintCol = (bid) => collection(db, "buildings", bid, "maintPeriods");
 const maintRef = (bid, id) => doc(db, "buildings", bid, "maintPeriods", id);
+const presetsCol = (bid) => collection(db, "buildings", bid, "costPresets");
+const presetRef = (bid, id) => doc(db, "buildings", bid, "costPresets", id);
 
 /* ---- account ---- */
 export const subscribeAccount = (uid, cb) =>
@@ -70,6 +72,20 @@ export const setMemberFlat = (bid, uid, flat) => updateDoc(memberRef(bid, uid), 
 export const setMemberRoles = (bid, uid, roles) => updateDoc(memberRef(bid, uid), { roles });
 export const updateMembership = (bid, uid, patch) => updateDoc(memberRef(bid, uid), patch);
 
+/* Admin flat assignment: atomically updates the member doc AND both flat docs
+   (clears claimedByUid on the old flat, sets it on the new one). */
+export async function adminAssignFlat(bid, uid, newFlat, oldFlat) {
+  const batch = writeBatch(db);
+  batch.update(memberRef(bid, uid), { flat: newFlat || null });
+  if (oldFlat && oldFlat !== newFlat) {
+    batch.update(flatRef(bid, oldFlat), { claimedByUid: null });
+  }
+  if (newFlat && newFlat !== oldFlat) {
+    batch.update(flatRef(bid, newFlat), { claimedByUid: uid });
+  }
+  await batch.commit();
+}
+
 /* ---- flats ---- */
 export const subscribeFlats = (bid, cb) =>
   onSnapshot(query(flatsCol(bid)), (snap) => cb(snap.docs.map((d) => d.data())));
@@ -86,15 +102,38 @@ export const saveWaterPeriod = (bid, id, data) => {
   return setDoc(waterRef(bid, id), { ...body, updatedAt: Date.now() });
 };
 export const deleteWaterPeriod = (bid, id) => deleteDoc(waterRef(bid, id));
-/* new blank water period; opening readings carry from last closing */
+/* ---- COST PRESETS ---- */
+export const subscribeCostPresets = (bid, cb) =>
+  onSnapshot(query(presetsCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+export async function saveCostPreset(bid, preset) {
+  if (preset.id) {
+    const { id, ...body } = preset;
+    await updateDoc(presetRef(bid, id), { ...body, updatedAt: Date.now() });
+    return id;
+  }
+  const ref = doc(presetsCol(bid));
+  await setDoc(ref, { ...preset, createdAt: Date.now(), updatedAt: Date.now() });
+  return ref.id;
+}
+export const deleteCostPreset = (bid, id) => deleteDoc(presetRef(bid, id));
+
+/* new blank water period; opening readings carry from last closing.
+   costItems (if present) carry forward with qty zeroed for re-entry. */
 export async function startNextWaterPeriod(bid, current) {
   const readings = {};
   Object.entries(current.readings || {}).forEach(([flat, r]) => {
     readings[flat] = { prev: r.curr || 0, curr: "", adj: 0 };
   });
+  // carry forward cost item structure (description + rate + split) with qty zeroed
+  const costItems = (current.costItems || []).map((ci) => ({
+    ...ci, quantity: "", id: "ci_" + Math.random().toString(36).slice(2, 8),
+  }));
   const ref = doc(waterCol(bid));
   await setDoc(ref, {
-    periodStart: "", periodEnd: "", genCount: "", genRate: "", manCount: "", manRate: "", connBill: "",
+    periodStart: "", periodEnd: "",
+    // keep legacy fields for backward compat
+    genCount: "", genRate: "", manCount: "", manRate: "", connBill: "",
+    costItems,
     readings, paidWater: {}, createdAt: Date.now(), updatedAt: Date.now(),
   });
   return ref.id;
@@ -121,19 +160,17 @@ export const publishPeriod = (bid, coll, id, uid) =>
    Only items flagged recurring carry forward (with their amounts); one-offs drop. */
 export async function startNextMaintPeriod(bid, current) {
   const b = nextMonthBounds(current.periodStart || current.periodEnd);
-  // Calculate surplus from current period to carry forward
   const expenses = (current.expenses || []);
   const total = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
   const charge = current.chargePerFlat != null ? Number(current.chargePerFlat) : null;
   const prevCarry = Number(current.carryForward || 0);
-  // surplus = (amount collected - amount spent) + any previous carry
   const surplus = charge != null ? (charge * 15 - total) + prevCarry : prevCarry;
   const ref = doc(maintCol(bid));
   await setDoc(ref, {
     periodStart: b.start, periodEnd: b.end,
     expenses: expenses.filter((e) => e.recurring).map((e) => ({ ...e })),
-    chargePerFlat: charge,  // carry same charge by default
-    carryForward: surplus,  // +ve = surplus, -ve = deficit from previous months
+    chargePerFlat: charge,
+    carryForward: surplus,
     paidMaint: {}, createdAt: Date.now(), updatedAt: Date.now(),
   });
   return ref.id;
