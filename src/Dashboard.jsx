@@ -696,10 +696,10 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
         canEdit={canEdit} onStartNext={onStartNext} onDeletePeriod={onDeletePeriod} canDelete={canDelete} startReady={startReady} saving={saving} />
 
       <div style={S.cards}>
-        <Card label="Total spent" value={money(maint.total)} tone="ink" note={`${expenses.length} line items`} />
+        <Card label="Total maintenance spent" value={money(maint.total)} tone="ink" note={`${expenses.length} line items`} />
         <Card label="Calculated split" value={money(maint.calculated)} tone="ink" note={`₹${Math.round(maint.total)} ÷ ${residential.length} flats`} />
         <div style={S.card}>
-          <div style={S.cardLabel}>Amount collected per flat</div>
+          <div style={S.cardLabel}>Actual amount collected per flat</div>
           {canEdit ? (
             <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 22, fontWeight: 700, fontFamily: mono, color: T.water, width: "100%", textAlign: "center", padding: "6px 8px" }}
               value={maint.charge != null ? maint.charge : ""}
@@ -711,7 +711,7 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
           ) : (
             <div style={{ ...S.cardValue, color: T.water, fontSize: 24 }}>{money(maint.perFlat)}</div>
           )}
-          <div style={S.cardNote}>{maint.charge != null ? "custom amount" : "using calculated split"}</div>
+          <div style={S.cardNote}>{maint.charge != null ? `₹${Math.round(maint.perFlat)} × ${residential.length} flats = ${money(maint.perFlat * residential.length)}` : "using calculated split"}</div>
         </div>
         <Card label="Owed to members" value={money(Object.values(maint.byMember).reduce((s, n) => s + n, 0))} tone="owed" note="adhoc expenses fronted" />
         {maint.surplus !== 0 && (
