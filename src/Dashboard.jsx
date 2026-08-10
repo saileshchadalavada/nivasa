@@ -12,7 +12,7 @@ import MeterCapture from "./MeterCapture";
 import CsvUpload from "./CsvUpload";
 import Broadcast from "./Broadcast";
 import Community from "./Community";
-import { styles as S, T, css, display, mono, applyTheme } from "./styles";
+import { styles as S, T, css, display, mono, font, applyTheme } from "./styles";
 import { THEME_LIST, getThemeId, setThemeId } from "./theme";
 
 /* Responsive hook — cards on mobile, table on desktop */
