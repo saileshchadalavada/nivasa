@@ -160,19 +160,25 @@ function ActivityCard({ activity: a, bid, myFlat, admin, members, expanded, mobi
   const myVote = isPoll ? a.poll?.votes?.[myFlat] : undefined;
   const ago = timeAgo(a.createdAt);
 
+  const appLink = `https://nivasa-myhomeapp.vercel.app?b=${bid}`;
+
   const shareText = () => {
     let msg = `${TYPES[a.type]} *${a.title}*\n`;
     if (a.body) msg += `\n${a.body}\n`;
     if (isPoll) {
       msg += "\nOptions:\n";
       (a.poll?.options || []).forEach((o, i) => { msg += `${i + 1}. ${o}\n`; });
-      msg += "\nVote in the Nivasa app!";
+      msg += `\n👉 Vote now: ${appLink}\nResults update live in the app!`;
     }
     if (isMeeting) {
       const m = a.meeting || {};
       if (m.date) msg += `\n📅 ${fmtDate(m.date)}${m.time ? ` at ${m.time}` : ""}`;
       if (m.location) msg += `\n📍 ${m.location}`;
       if (m.agenda) msg += `\n\n${m.agenda}`;
+      msg += `\n\n👉 Details: ${appLink}`;
+    }
+    if (a.type === "announcement") {
+      msg += `\n👉 Open app: ${appLink}`;
     }
     return msg;
   };
