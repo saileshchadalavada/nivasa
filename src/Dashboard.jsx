@@ -50,7 +50,9 @@ export default function Dashboard({
   const allMeters = useMemo(() => [...residential, ...flats.filter((f) => f.isCommon)], [flats, residential]);
   const nRes = residential.length || 1;
 
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState(() => {
+    try { const p = new URLSearchParams(window.location.search).get("tab"); return p || "dashboard"; } catch { return "dashboard"; }
+  });
   const [openFlat, setOpenFlat] = useState(null);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [publish, setPublish] = useState(null);
@@ -264,6 +266,11 @@ export default function Dashboard({
             residential={residential} canWater={canWater} canMaint={canMaint} admin={admin} config={config}
             togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint} openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile}
             onBroadcast={() => setShowBroadcast(true)} />
+        )}
+        {showBroadcast && (
+          <Broadcast residential={residential} members={members} water={dispWater} maint={dispMaint}
+            waterPeriod={dw} maintPeriod={dm} config={config}
+            onClose={() => setShowBroadcast(false)} />
         )}
         {tab === "water" && (
           <WaterEntry water={water} setField={setWaterField} setReading={setReading} canEdit={canWater}

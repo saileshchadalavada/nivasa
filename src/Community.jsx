@@ -160,7 +160,7 @@ function ActivityCard({ activity: a, bid, myFlat, admin, members, expanded, mobi
   const myVote = isPoll ? a.poll?.votes?.[myFlat] : undefined;
   const ago = timeAgo(a.createdAt);
 
-  const appLink = `https://nivasa-myhomeapp.vercel.app?b=${bid}`;
+  const appLink = `https://nivasa-myhomeapp.vercel.app?b=${bid}&tab=community`;
 
   const shareText = () => {
     let msg = `${TYPES[a.type]} *${a.title}*\n`;
