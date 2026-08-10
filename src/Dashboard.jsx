@@ -14,6 +14,7 @@ import Broadcast from "./Broadcast";
 import Community from "./Community";
 import { styles as S, T, css, display, mono, font, applyTheme } from "./styles";
 import { THEME_LIST, getThemeId, setThemeId } from "./theme";
+import { useT, LANGUAGES } from "./i18n";
 
 /* Responsive hook — cards on mobile, table on desktop */
 function useIsMobile(breakpoint = 640) {
@@ -40,6 +41,7 @@ export default function Dashboard({
   const uid = user.uid;
   const mobile = useIsMobile();
   const admin = isAdmin(membership, config, uid);
+  const t = useT(config);
   const canWater = canEditWater(membership, config, uid);
   const canMaint = canEditMaint(membership, config, uid);
   const meFlat = membership.flat;
@@ -194,10 +196,10 @@ export default function Dashboard({
   };
 
   const tabs = [
-    ["home", "🏠"], ["dashboard", "Overview"], ["water", "Water"], ["maintenance", "Maintenance"],
-    ...(meFlat ? [["flat", "My flat"]] : []), ["history", "History"],
-    ["community", "Community"],
-    ...(admin ? [["members", "Members"]] : []),
+    ["home", "🏠"], ["dashboard", t("overview")], ["water", t("water")], ["maintenance", t("maintenance")],
+    ...(meFlat ? [["flat", t("myFlat")]] : []), ["history", t("history")],
+    ["community", t("community")],
+    ...(admin ? [["members", t("members")]] : []),
   ];
 
   return (
@@ -249,7 +251,11 @@ export default function Dashboard({
                       background: t.color, cursor: "pointer", fontSize: 10, padding: 0 }} />
                 ))}
               </div>}
-              <button style={S.signout} onClick={onSignOut}>Sign out</button>
+              <select value={config?.language || "en"} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,.85)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}
+                onChange={(e) => { import("./data").then((d) => d.updateBuilding(bid, { language: e.target.value })); }}>
+                {LANGUAGES.map((l) => <option key={l.code} value={l.code} style={{ color: "#333", background: "#fff" }}>{l.native}</option>)}
+              </select>
+              <button style={S.signout} onClick={onSignOut}>{t("signOut")}</button>
             </div>
           </div>
         </div>
@@ -262,7 +268,7 @@ export default function Dashboard({
       <main style={{ ...S.main, ...(mobile ? { padding: "16px 12px" } : {}) }}>
         {tab === "home" && (
           <HomeHub
-            myName={myName} meFlat={meFlat} admin={admin} mobile={mobile}
+            myName={myName} meFlat={meFlat} admin={admin} mobile={mobile} t={t}
             waterLabel={dw.label} maintLabel={dm.label}
             myWaterBill={dispWater.rows.find((r) => r.flat === meFlat)?.bill || 0}
             maintPerFlat={dispMaint.perFlat}
@@ -322,7 +328,7 @@ export default function Dashboard({
       {(canWater || canMaint) && dirty && ["home", "dashboard", "water", "maintenance"].includes(tab) && (
         <div style={S.saveBar}>
           <div style={S.saveBarInner}>
-            <span>Unsaved changes — residents see them once you save.</span>
+            <span>${t("unsavedChanges")}</span>
             <span style={{ display: "flex", gap: 10 }}>
               <button className="ghostBtn" style={S.ghostBtn} onClick={onDiscard} disabled={saving}>Undo</button>
               <button className="primaryBtn" style={S.primaryBtn} onClick={onSave} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
@@ -1072,22 +1078,22 @@ function Drawer({ children, onClose }) {
 }
 
 /* ---- Home hub — icon grid with live data summaries ---- */
-function HomeHub({ myName, meFlat, admin, mobile, waterLabel, maintLabel, myWaterBill, maintPerFlat, activityCount, onNav }) {
+function HomeHub({ myName, meFlat, admin, mobile, t, waterLabel, maintLabel, myWaterBill, maintPerFlat, activityCount, onNav }) {
   const cards = [
-    { key: "water", icon: "💧", label: "Water", sub: waterLabel || "Current", value: myWaterBill > 0 ? money(myWaterBill) : "View", color: "#4B86E0" },
-    { key: "maintenance", icon: "🔧", label: "Maintenance", sub: maintLabel || "Current", value: maintPerFlat > 0 ? money(maintPerFlat) : "View", color: "#E8883C" },
-    { key: "dashboard", icon: "📋", label: "Overview", sub: "Bills & payments", value: "View", color: "#6B5CE7" },
-    ...(meFlat ? [{ key: "flat", icon: "🏠", label: "My Flat", sub: `Flat ${meFlat}`, value: "View", color: "#2FA84F" }] : []),
-    { key: "community", icon: "📊", label: "Community", sub: activityCount > 0 ? `${activityCount} recent` : "Polls & updates", value: activityCount > 0 ? `${activityCount} new` : "View", color: "#D64B8A" },
-    { key: "history", icon: "📜", label: "History", sub: "Past months", value: "View", color: "#8A8A9A" },
-    ...(admin ? [{ key: "members", icon: "👥", label: "Members", sub: "Roles & flats", value: "Manage", color: "#B07A0E" }] : []),
+    { key: "water", icon: "💧", label: t("water"), sub: waterLabel || t("current"), value: myWaterBill > 0 ? money(myWaterBill) : t("view"), color: "#4B86E0" },
+    { key: "maintenance", icon: "🔧", label: t("maintenance"), sub: maintLabel || t("current"), value: maintPerFlat > 0 ? money(maintPerFlat) : t("view"), color: "#E8883C" },
+    { key: "dashboard", icon: "📋", label: t("overview"), sub: t("billsPayments"), value: t("view"), color: "#6B5CE7" },
+    ...(meFlat ? [{ key: "flat", icon: "🏠", label: t("myFlat"), sub: `${t("flat")} ${meFlat}`, value: t("view"), color: "#2FA84F" }] : []),
+    { key: "community", icon: "📊", label: t("community"), sub: activityCount > 0 ? `${activityCount} ${t("recentActivity")}` : t("pollsUpdates"), value: activityCount > 0 ? `${activityCount} new` : t("view"), color: "#D64B8A" },
+    { key: "history", icon: "📜", label: t("history"), sub: t("pastMonths"), value: t("view"), color: "#8A8A9A" },
+    ...(admin ? [{ key: "members", icon: "👥", label: t("members"), sub: t("rolesFlats"), value: t("manage"), color: "#B07A0E" }] : []),
   ];
 
   return (
     <div>
       <div style={H.welcome}>
-        <div style={H.welcomeText}>Welcome, <b>{myName}</b></div>
-        <div style={H.welcomeSub}>What would you like to manage today?</div>
+        <div style={H.welcomeText}>{t("welcome")} <b>{myName}</b></div>
+        <div style={H.welcomeSub}>{t("welcomeSub")}</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: mobile ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: mobile ? 10 : 14 }}>
         {cards.map((c) => (
