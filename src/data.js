@@ -22,6 +22,8 @@ const waterRef = (bid, id) => doc(db, "buildings", bid, "waterPeriods", id);
 const maintCol = (bid) => collection(db, "buildings", bid, "maintPeriods");
 const maintRef = (bid, id) => doc(db, "buildings", bid, "maintPeriods", id);
 const presetsCol = (bid) => collection(db, "buildings", bid, "costPresets");
+const activitiesCol = (bid) => collection(db, "buildings", bid, "activities");
+const activityRef = (bid, id) => doc(db, "buildings", bid, "activities", id);
 const presetRef = (bid, id) => doc(db, "buildings", bid, "costPresets", id);
 
 /* ---- account ---- */
@@ -218,10 +220,24 @@ export async function addMaintPeriod(bid) {
   return ref.id;
 }
 
+/* ---- ACTIVITIES (announcements, polls, meetings) ---- */
+export const subscribeActivities = (bid, cb) =>
+  onSnapshot(query(activitiesCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+export async function createActivity(bid, activity) {
+  const ref = doc(activitiesCol(bid));
+  await setDoc(ref, { ...activity, createdAt: Date.now(), updatedAt: Date.now() });
+  return ref.id;
+}
+export const updateActivity = (bid, id, patch) =>
+  updateDoc(activityRef(bid, id), { ...patch, updatedAt: Date.now() });
+export const deleteActivity = (bid, id) => deleteDoc(activityRef(bid, id));
+export const voteOnPoll = (bid, id, flat, optionIdx) =>
+  updateDoc(activityRef(bid, id), { [`poll.votes.${flat}`]: optionIdx });
+
 /* Admin-only: delete an entire building — every subcollection doc, the config,
    and remove the building id from each member's account. */
 export async function deleteBuilding(bid) {
-  const cols = [flatsCol(bid), waterCol(bid), maintCol(bid), membersCol(bid)];
+  const cols = [flatsCol(bid), waterCol(bid), maintCol(bid), membersCol(bid), activitiesCol(bid)];
   const memberSnap = await getDocs(membersCol(bid));
   // detach the building from every member's account list
   for (const m of memberSnap.docs) {

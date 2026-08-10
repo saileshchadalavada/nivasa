@@ -193,6 +193,7 @@ export default function Dashboard({
   const tabs = [
     ["dashboard", "Overview"], ["water", "Water"], ["maintenance", "Maintenance"],
     ...(meFlat ? [["flat", "My flat"]] : []), ["history", "History"],
+    ["community", "Community"],
     ...(admin ? [["members", "Members"]] : []),
   ];
 
@@ -285,6 +286,7 @@ export default function Dashboard({
         )}
         {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} />}
         {tab === "history" && <History flat={meFlat} residential={residential} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} />}
+        {tab === "community" && <Community bid={bid} activities={activities} membership={membership} members={members} config={config} admin={admin} mobile={mobile} />}
         {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} />}
       </main>
 

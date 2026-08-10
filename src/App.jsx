@@ -6,6 +6,7 @@ import {
   subscribeMembership, getBuilding,
   subscribeWaterPeriods, saveWaterPeriod, startNextWaterPeriod, deleteWaterPeriod, ensureWaterPeriod,
   subscribeMaintPeriods, saveMaintPeriod, startNextMaintPeriod, deleteMaintPeriod, ensureMaintPeriod,
+  subscribeActivities,
   deleteBuilding, setPaidFlag, backfillWater2026,
 } from "./data";
 import { isAdmin } from "./seedData";
@@ -39,6 +40,7 @@ export default function App() {
   const [allWater, setAllWater] = useState(null);
   const [allMaint, setAllMaint] = useState(null);
   const [bnames, setBnames] = useState({});
+  const [activities, setActivities] = useState([]);
 
   const [waterMonth, setWaterMonth] = useState(null);
   const [maintMonth, setMaintMonth] = useState(null);
@@ -83,7 +85,7 @@ export default function App() {
   useEffect(() => {
     if (!user || !effectiveBid) {
       setConfig(undefined); setFlats([]); setMembers([]); setMembership(undefined);
-      setAllWater(null); setAllMaint(null); return;
+      setAllWater(null); setAllMaint(null); setActivities([]); return;
     }
     setConfig(undefined); setMembership(undefined); setAllWater(null); setAllMaint(null);
     setWaterDirty(false); setMaintDirty(false);
@@ -94,6 +96,7 @@ export default function App() {
       subscribeMembership(effectiveBid, user.uid, setMembership),
       subscribeWaterPeriods(effectiveBid, setAllWater),
       subscribeMaintPeriods(effectiveBid, setAllMaint),
+      subscribeActivities(effectiveBid, setActivities),
     ];
     return () => unsubs.forEach((u) => u && u());
   }, [user, effectiveBid]);
@@ -305,6 +308,7 @@ export default function App() {
       onImportWater2026={importWater2026}
       canImportWater2026={!!config.seededSrGold && !config.water2026Imported}
       onSignOut={() => signOut(auth)}
+      activities={activities}
     />
   );
 }
