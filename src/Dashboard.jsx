@@ -3,7 +3,7 @@ import { money, money2, labelFromStart, fmtDate, daysBetween } from "./util";
 import { buildWaterSnapshot, buildMaintSnapshot } from "./snapshot";
 import { generateWaterPoster, generateMaintPoster, sharePoster, canvasToBlob } from "./poster";
 import { HISTORY, HISTORY_MONTHS } from "./historicalWater";
-import { publishPeriod } from "./data";
+import { publishPeriod, updateBuilding } from "./data";
 import { isAdmin, canEditWater, canEditMaint } from "./seedData";
 import Members from "./Members";
 import History from "./History";
@@ -252,7 +252,7 @@ export default function Dashboard({
                 ))}
               </div>}
               <select value={config?.language || "en"} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,.85)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}
-                onChange={(e) => { import("./data").then((d) => d.updateBuilding(bid, { language: e.target.value })); }}>
+                onChange={(e) => { updateBuilding(bid, { language: e.target.value }); }}>
                 {LANGUAGES.map((l) => <option key={l.code} value={l.code} style={{ color: "#333", background: "#fff" }}>{l.native}</option>)}
               </select>
               <button style={S.signout} onClick={onSignOut}>{t("signOut")}</button>
