@@ -11,7 +11,7 @@ import MeterScan from "./MeterScan";
 import MeterCapture from "./MeterCapture";
 import CsvUpload from "./CsvUpload";
 import Broadcast from "./Broadcast";
-import Community from "./Community"
+import Community from "./Community";
 import { styles as S, T, css, display, mono, applyTheme } from "./styles";
 import { THEME_LIST, getThemeId, setThemeId } from "./theme";
 
@@ -28,7 +28,7 @@ function useIsMobile(breakpoint = 640) {
 
 
 export default function Dashboard({
-  user, membership, config, bid, flats, members,
+  user, membership, config, bid, flats, members, activities,
   waterMonth, maintMonth, pastWater, pastMaint, patchWater, patchMaint,
   displayWater, displayMaint, togglePaidWater, togglePaidMaint,
   waterList, maintList, selWaterId, selMaintId, onSelectWater, onSelectMaint, isLatestWater, isLatestMaint,
