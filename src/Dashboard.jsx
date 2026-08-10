@@ -51,7 +51,7 @@ export default function Dashboard({
   const nRes = residential.length || 1;
 
   const [tab, setTab] = useState(() => {
-    try { const p = new URLSearchParams(window.location.search).get("tab"); return p || "dashboard"; } catch { return "dashboard"; }
+    try { const p = new URLSearchParams(window.location.search).get("tab"); return p || "home"; } catch { return "home"; }
   });
   const [openFlat, setOpenFlat] = useState(null);
   const [showBroadcast, setShowBroadcast] = useState(false);
@@ -194,7 +194,7 @@ export default function Dashboard({
   };
 
   const tabs = [
-    ["dashboard", "Overview"], ["water", "Water"], ["maintenance", "Maintenance"],
+    ["home", "🏠"], ["dashboard", "Overview"], ["water", "Water"], ["maintenance", "Maintenance"],
     ...(meFlat ? [["flat", "My flat"]] : []), ["history", "History"],
     ["community", "Community"],
     ...(admin ? [["members", "Members"]] : []),
@@ -206,7 +206,7 @@ export default function Dashboard({
 
       <header style={{ ...S.header, ...(mobile ? { padding: "14px 16px", gap: 8 } : {}) }}>
         <div style={S.headLeft}>
-          {!mobile && <div style={{ ...S.mark, background: T.brandDark }}>
+          {!mobile && <div onClick={() => setTab("home")} style={{ ...S.mark, background: T.brandDark, cursor: "pointer" }} title="Home">
             {[5,4,3,2,1].map((fl) => (<div key={fl} style={S.markRow}>{[0,1,2].map((c) => <span key={c} style={S.markDot} />)}</div>))}
           </div>}
           <div>
@@ -260,6 +260,16 @@ export default function Dashboard({
       </nav>
 
       <main style={{ ...S.main, ...(mobile ? { padding: "16px 12px" } : {}) }}>
+        {tab === "home" && (
+          <HomeHub
+            myName={myName} meFlat={meFlat} admin={admin} mobile={mobile}
+            waterLabel={dw.label} maintLabel={dm.label}
+            myWaterBill={dispWater.rows.find((r) => r.flat === meFlat)?.bill || 0}
+            maintPerFlat={dispMaint.perFlat}
+            activityCount={(activities || []).filter((a) => Date.now() - (a.createdAt || 0) < 7 * 86400000).length}
+            onNav={setTab}
+          />
+        )}
         {tab === "dashboard" && (
           <Overview water={dispWater} maint={dispMaint} paidWater={displayWater?.paidWater || {}} paidMaint={displayMaint?.paidMaint || {}}
             waterPeriod={dw} maintPeriod={dm}
@@ -309,7 +319,7 @@ export default function Dashboard({
           onDone={() => doPublish(publish)} onClose={() => setPublish(null)} />
       )}
 
-      {(canWater || canMaint) && dirty && ["dashboard", "water", "maintenance"].includes(tab) && (
+      {(canWater || canMaint) && dirty && ["home", "dashboard", "water", "maintenance"].includes(tab) && (
         <div style={S.saveBar}>
           <div style={S.saveBarInner}>
             <span>Unsaved changes — residents see them once you save.</span>
@@ -1060,3 +1070,50 @@ function PublishModal({ kind, text, poster, onDone, onClose }) {
 function Drawer({ children, onClose }) {
   return (<div style={S.drawerBack} onClick={onClose}><div style={S.drawer} onClick={(e) => e.stopPropagation()}><button style={S.drawerClose} onClick={onClose}>✕</button>{children}</div></div>);
 }
+
+/* ---- Home hub — icon grid with live data summaries ---- */
+function HomeHub({ myName, meFlat, admin, mobile, waterLabel, maintLabel, myWaterBill, maintPerFlat, activityCount, onNav }) {
+  const cards = [
+    { key: "water", icon: "💧", label: "Water", sub: waterLabel || "Current", value: myWaterBill > 0 ? money(myWaterBill) : "View", color: "#4B86E0" },
+    { key: "maintenance", icon: "🔧", label: "Maintenance", sub: maintLabel || "Current", value: maintPerFlat > 0 ? money(maintPerFlat) : "View", color: "#E8883C" },
+    { key: "dashboard", icon: "📋", label: "Overview", sub: "Bills & payments", value: "View", color: "#6B5CE7" },
+    ...(meFlat ? [{ key: "flat", icon: "🏠", label: "My Flat", sub: `Flat ${meFlat}`, value: "View", color: "#2FA84F" }] : []),
+    { key: "community", icon: "📊", label: "Community", sub: activityCount > 0 ? `${activityCount} recent` : "Polls & updates", value: activityCount > 0 ? `${activityCount} new` : "View", color: "#D64B8A" },
+    { key: "history", icon: "📜", label: "History", sub: "Past months", value: "View", color: "#8A8A9A" },
+    ...(admin ? [{ key: "members", icon: "👥", label: "Members", sub: "Roles & flats", value: "Manage", color: "#B07A0E" }] : []),
+  ];
+
+  return (
+    <div>
+      <div style={H.welcome}>
+        <div style={H.welcomeText}>Welcome, <b>{myName}</b></div>
+        <div style={H.welcomeSub}>What would you like to manage today?</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: mobile ? 10 : 14 }}>
+        {cards.map((c) => (
+          <button key={c.key} onClick={() => onNav(c.key)} style={H.card}>
+            <div style={{ fontSize: mobile ? 28 : 34, marginBottom: 6 }}>{c.icon}</div>
+            <div style={H.cardLabel}>{c.label}</div>
+            <div style={H.cardSub}>{c.sub}</div>
+            <div style={{ ...H.cardValue, color: c.color }}>{c.value}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const H = {
+  welcome: { marginBottom: 20, textAlign: "center" },
+  welcomeText: { fontFamily: display, fontSize: 20, fontWeight: 700, color: T.ink },
+  welcomeSub: { fontSize: 14, color: T.inkSoft, marginTop: 4 },
+  card: {
+    background: T.surface, border: `1px solid ${T.line}`, borderRadius: 16,
+    padding: "20px 14px", textAlign: "center", cursor: "pointer",
+    transition: "transform .1s, box-shadow .1s", fontFamily: font,
+    display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+  },
+  cardLabel: { fontFamily: display, fontWeight: 700, fontSize: 15, color: T.ink },
+  cardSub: { fontSize: 12, color: T.muted, marginTop: 2 },
+  cardValue: { fontFamily: mono, fontWeight: 700, fontSize: 16, marginTop: 6 },
+};
