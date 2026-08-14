@@ -214,7 +214,7 @@ export default function Dashboard({
           <button onClick={() => setMenuOpen(true)} style={MB.hamburger}>☰</button>
           <div style={MB.headerCenter}>
             <select value={bid} style={MB.buildingSelect} onChange={(e) => onSwitch(e.target.value)}>
-              {(buildings || []).map((b) => <option key={b.bid} value={b.bid}>{b.name}</option>)}
+              {(buildings || []).map((b) => <option key={b.bid} value={b.bid} style={{ color: "#333", background: "#fff" }}>{b.name}</option>)}
             </select>
           </div>
           <div onClick={() => setTab("home")} style={{ ...S.avatar, width: 34, height: 34, fontSize: 13, cursor: "pointer" }}>{initialsOf(myName)}</div>
@@ -1379,8 +1379,10 @@ const MB = {
   headerCenter: { flex: 1, textAlign: "center" },
   buildingSelect: {
     fontFamily: display, fontWeight: 700, fontSize: 17, color: "#fff",
-    background: "transparent", border: "none", textAlign: "center",
-    cursor: "pointer", maxWidth: 200,
+    background: "rgba(255,255,255,.15)", border: "1px solid rgba(255,255,255,.3)",
+    borderRadius: 8, padding: "4px 10px",
+    cursor: "pointer", maxWidth: 200, WebkitAppearance: "none", appearance: "none",
+    textAlign: "center",
   },
   drawerBack: {
     position: "fixed", inset: 0, background: "rgba(0,0,0,.4)",
