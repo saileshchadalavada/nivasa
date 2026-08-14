@@ -308,11 +308,15 @@ export function getPaymentsForFlat(payments, flat) {
 /* Remove a member from the building (admin only).
    Clears their flat claim, removes member doc, removes building from their account. */
 export async function removeMember(bid, uid, flat) {
+  // Delete member doc + free flat in one batch
   const batch = writeBatch(db);
   batch.delete(memberRef(bid, uid));
   if (flat) batch.update(flatRef(bid, flat), { claimedByUid: null });
-  batch.update(userRef(uid), { buildings: arrayRemove(bid) });
   await batch.commit();
+  // Separately try to remove building from user's account
+  // (may fail if Firestore rules only allow self-update — that's OK,
+  //  the user just won't see the building anymore since their member doc is gone)
+  try { await updateDoc(userRef(uid), { buildings: arrayRemove(bid) }); } catch {}
 }
 
 /* Admin-only: delete an entire building — every subcollection doc, the config,
