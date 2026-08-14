@@ -1082,18 +1082,18 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                             onClick={() => setPayingFlat(null)}>✕</button>
                         </span>
                       ) : (
-                        <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                           <button style={{ border: `1px solid ${r.totalDue <= 0 ? T.money : T.line}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff",
                             color: r.totalDue <= 0 ? T.money : T.water, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                            cursor: "pointer", fontFamily: font }}
+                            cursor: "pointer", fontFamily: font, minWidth: 70 }}
                             onClick={() => { setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue || r.currentBill))); }}>
                             {r.totalDue <= 0 ? "✓ Paid" : "Record"}
                           </button>
                           {r.totalPaid > 0 && (
-                            <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 11, textDecoration: "underline" }}
+                            <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 10, textDecoration: "underline", padding: 0 }}
                               onClick={() => undoLastPayment(r.flat)} title="Undo last payment">undo</button>
                           )}
-                        </span>
+                        </div>
                       )
                     ) : (
                       <span style={{ fontSize: 12, color: r.totalDue <= 0 ? T.money : T.muted }}>
