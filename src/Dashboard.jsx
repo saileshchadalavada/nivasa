@@ -933,6 +933,9 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
     try {
       const month = [water.rows[0]?.periodLabel, maint.periodLabel].filter(Boolean).join("/") || "current";
       await recordPayment(bid, flat, amount, new Date().toISOString().slice(0, 10), payNote.trim(), month);
+      // Set outstanding to remaining after payment (based on actual computed bill, not stored value)
+      const remaining = Math.max(0, totalDue - amount);
+      await updateBuilding(bid, { [`outstanding.${flat}`]: remaining });
       setPayingFlat(null); setPayAmt(""); setPayNote("");
     } catch (e) { alert("Error: " + (e?.message || "unknown")); }
     finally { setSaving(false); }
