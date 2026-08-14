@@ -1281,25 +1281,37 @@ function SpecialExpenses({ config, bid, canEdit, expenses, setExpenses }) {
     setTitle(""); setAmount(""); setMonths("1"); setAdding(false);
   };
 
-  const addToMaintenance = (item) => {
-    const perMonth = Math.round(item.amount / item.months);
-    const isMultiMonth = item.months > 1;
-    const newExp = {
-      id: "e_" + Math.random().toString(36).slice(2, 8),
-      item: item.title + (isMultiMonth ? ` (${money(perMonth)}/month × ${item.months} months)` : ""),
-      amount: perMonth,
-      paidBy: "fund",
-      recurring: isMultiMonth, // multi-month = recurring
-    };
-    setExpenses((xs) => [...xs, newExp]);
-    const newCollected = (item.collected || 0) + perMonth;
+    const addToMaintenance = (item) => {
+    // Guard: don't collect if already collected this period or fully collected
+    const alreadyCollected = (item.collected || 0) >= item.amount;
+    const collectedThisPeriod = item.lastCollectedDate && expenses.some((e) => e.item && e.item.includes(item.title));
+    if (alreadyCollected || collectedThisPeriod) return;
+
+    const perMonth = Math.round(item.amount / (item.months || 1));
+    const isMultiMonth = (item.months || 1) > 1;
+    const isFirstTime = !item.collected || item.collected === 0;
+
+    if (isFirstTime) {
+      // First collection: add expense (recurring if multi-month)
+      const newExp = {
+        id: "e_sp_" + item.id,
+        item: item.title + (isMultiMonth ? " (" + money(perMonth) + "/month)" : ""),
+        amount: perMonth,
+        paidBy: "fund",
+        recurring: isMultiMonth,
+      };
+      setExpenses((xs) => [...xs, newExp]);
+    }
+    // else: recurring expense already exists from previous period, just track collection
+
+    const newCollected = Math.min(item.amount, (item.collected || 0) + perMonth);
     const done = newCollected >= item.amount;
     save(allItems.map((i) => i.id === item.id
-      ? { ...i, status: done ? "completed" : "collecting", collected: newCollected }
+      ? { ...i, status: done ? "completed" : "collecting", collected: newCollected, lastCollectedDate: new Date().toISOString().slice(0, 10) }
       : i));
   };
 
-  const payFromCorpus = (item) => {
+const payFromCorpus = (item) => {
     const corpus = config?.corpus || { monthly: 0, openingBalance: 0, ledger: [] };
     const withdrawal = {
       id: "c_" + Math.random().toString(36).slice(2, 8),
@@ -1374,8 +1386,14 @@ function SpecialExpenses({ config, bid, canEdit, expenses, setExpenses }) {
                     )}
                     {item.status === "collecting" && (
                       <>
-                        <button style={{ border: `1px solid ${T.water}`, background: "#fff", color: T.water, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}
-                          onClick={() => addToMaintenance(item)}>+ Collect next {money(perMonth)}</button>
+                        {expenses.some((e) => e.item && e.item.includes(item.title)) ? (
+                          <span style={{ fontSize: 12, color: T.money, fontWeight: 600 }}>✓ Collected this period</span>
+                        ) : (item.collected || 0) >= item.amount ? (
+                          <span style={{ fontSize: 12, color: T.money, fontWeight: 600 }}>✓ Fully collected</span>
+                        ) : (
+                          <button style={{ border: `1px solid ${T.water}`, background: "#fff", color: T.water, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+                            onClick={() => addToMaintenance(item)}>+ Collect next {money(perMonth)}</button>
+                        )}
                         <button style={{ border: `1px solid ${T.money}`, background: "#fff", color: T.muted, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}
                           onClick={() => markComplete(item.id)}>Mark complete</button>
                       </>
