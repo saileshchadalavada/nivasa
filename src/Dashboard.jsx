@@ -137,7 +137,7 @@ export default function Dashboard({
   const shareInvite = async () => {
     const link = `${window.location.origin}${window.location.pathname}?b=${bid}&join=${config.inviteCode}`;
     const text = `Join our ${config.name} ledger on Nivasa: ${link} (invite code ${config.inviteCode})`;
-    try { await navigator.clipboard.writeText(link); } catch {}
+    try { await navigator.clipboard.writeText(link); } catch (e) { console.error("Could not copy invite link:", e); }
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   };
 
@@ -407,7 +407,7 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
   const payments = config?.payments || [];
   const outstanding = config?.outstanding || {};
   const corpus = maint.corpusMonthly || 0;
-  const billable = water.rows.reduce((s, r) => s + r.bill, 0) + maint.total;
+  const billable = (water.residentialBillTotal || 0) + maint.total;
 
   // Payment-based status: compute per-flat due using recorded payments
   const flatDue = (flat) => {
@@ -462,7 +462,10 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
         </div>
       </div>
       <div style={S.cards}>
-        <Card label="Water this period" value={money(water.grandTotal)} tone="water" note={water.costItems.length ? water.costItems.map((ci) => ci.label || "cost").join(" + ") : "no costs entered"} />
+        <Card label="Water cost this period" value={money(water.grandTotal)} tone="water" note={water.costItems.length ? water.costItems.map((ci) => ci.label || "cost").join(" + ") : "no costs entered"} />
+        {water.commonLiability > 0 && (
+          <Card label="Resident water collectible" value={money(water.residentialBillTotal)} tone="water" note={`${money(water.commonLiability)} Common liability funded by association`} />
+        )}
         <Card label="Maintenance this period" value={money(maint.total)} tone="ink" note={`${money(maint.perFlat)} per flat`} />
         <Card label="Total billable" value={money(billable)} tone="ink" note={`water + maintenance, ${residential.length} flats`} />
         <Card label="Total payments recorded" value={money(collected)} tone="money" note="all periods combined" />
@@ -772,9 +775,9 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
           <Card label={maint.surplus > 0 ? "Maintenance surplus" : "Maintenance deficit"}
             value={money(Math.abs(maint.surplus))}
             tone={maint.surplus > 0 ? "money" : "owed"}
-            note={maint.corpusMonthly > 0
-              ? `₹${Math.round(maint.perFlat)} collected − ₹${Math.round(maint.calculated)} expenses − ₹${maint.corpusMonthly} corpus = ₹${Math.round(maint.perFlat - maint.calculated - maint.corpusMonthly)}/flat`
-              : (maint.surplus > 0 ? `₹${Math.round(maint.perFlat - maint.calculated)} extra per flat` : `₹${Math.round(maint.calculated - maint.perFlat)} less per flat`)} />
+            note={maint.surplus > 0
+              ? `₹${Math.round(maint.perFlat - maint.calculated)} extra per flat${maint.corpusMonthly > 0 ? ". Corpus is tracked separately." : ""}`
+              : `₹${Math.round(maint.calculated - maint.perFlat)} less per flat${maint.corpusMonthly > 0 ? ". Corpus is tracked separately." : ""}`} />
         )}
         <div style={S.card}>
           <div style={S.cardLabel}>{(() => {
@@ -1615,7 +1618,7 @@ function PublishModal({ kind, text, poster, onDone, onClose }) {
   };
   const shareTextApp = () => { onDone(); window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent(text), "_blank"); };
   const shareTextWeb = () => { onDone(); window.open("https://web.whatsapp.com/send?text=" + encodeURIComponent(text), "_blank"); };
-  const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); onDone(); setTimeout(() => setCopied(false), 1800); } catch {} };
+  const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); onDone(); setTimeout(() => setCopied(false), 1800); } catch (e) { console.error("Could not copy published bill:", e); alert("Could not copy the bill. Please select and copy the text manually."); } };
 
   return (
     <div style={S.drawerBack} onClick={onClose}>
