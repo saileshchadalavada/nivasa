@@ -29,6 +29,8 @@ body { margin: 0; -webkit-font-smoothing: antialiased; }
 .tile { transition: transform .08s, filter .08s; }
 .tile:hover:not(:disabled) { filter: brightness(1.04); }
 .tile:active:not(:disabled) { transform: translateY(1px); }
+/* smooth transitions */
+.tile, button { -webkit-tap-highlight-color: transparent; }
 /* responsive — layout stacks, fonts stay big */
 @media (max-width: 768px) {
   .hide-mobile { display: none !important; }
@@ -41,7 +43,7 @@ body { margin: 0; -webkit-font-smoothing: antialiased; }
 /* Returns a fresh styles object from current T values — call on every render
    so theme changes propagate everywhere. */
 export function getStyles() {
-  const card = { background: T.surface, borderRadius: 14, border: `1px solid ${T.line}` };
+  const card = { background: T.surface, borderRadius: 14, border: `1px solid ${T.line}`, boxShadow: '0 1px 4px rgba(0,0,0,.04)' };
   return {
   app: { fontFamily: font, background: T.bg, minHeight: "100vh", color: T.ink,
     maxWidth: 1120, margin: "0 auto", paddingBottom: 80 },

@@ -57,6 +57,7 @@ export default function Dashboard({
   });
   const [openFlat, setOpenFlat] = useState(null);
   const [showBroadcast, setShowBroadcast] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [publish, setPublish] = useState(null);
   const [themeId, _setTheme] = useState(getThemeId());
   const switchTheme = (id) => { setThemeId(id); applyTheme(id); _setTheme(id); document.body.style.background = T.bg; }; // "water" | "maint" | null
@@ -207,66 +208,122 @@ export default function Dashboard({
     <div style={S.app}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
 
-      <header style={{ ...S.header, ...(mobile ? { padding: "14px 16px", gap: 8 } : {}) }}>
-        <div style={S.headLeft}>
-          {!mobile && <div onClick={() => setTab("home")} style={{ ...S.mark, background: T.brandDark, cursor: "pointer" }} title="Home">
-            {[5,4,3,2,1].map((fl) => (<div key={fl} style={S.markRow}>{[0,1,2].map((c) => <span key={c} style={S.markDot} />)}</div>))}
-          </div>}
-          <div>
-            <div style={S.brandRow}>
-              <select value={bid} style={{ ...S.switcher, ...(mobile ? { fontSize: 15, maxWidth: 160 } : {}) }}
-                onChange={(e) => onSwitch(e.target.value)}>
-                {(buildings || []).map((b) => <option key={b.bid} value={b.bid} style={{ color: T.ink, background: "#fff" }}>{b.name}</option>)}
-              </select>
-              <button style={S.newBldBtn} onClick={onNewBuilding} title="Create or join another building">＋</button>
-            </div>
-            {!mobile && <div style={S.brandSub}>{[config.city, config.state].filter(Boolean).join(", ") || "Shared ledger"} · {nRes} flats</div>}
+      {/* ===== MOBILE HEADER ===== */}
+      {mobile ? (
+        <header style={MB.header}>
+          <button onClick={() => setMenuOpen(true)} style={MB.hamburger}>☰</button>
+          <div style={MB.headerCenter}>
+            <select value={bid} style={MB.buildingSelect} onChange={(e) => onSwitch(e.target.value)}>
+              {(buildings || []).map((b) => <option key={b.bid} value={b.bid}>{b.name}</option>)}
+            </select>
           </div>
-        </div>
-        <div style={{ ...S.headRight, ...(mobile ? { gap: 8 } : {}) }}>
-          {!mobile && (isWaterTab ? (
-            <div style={S.monthBox}>
-              <div style={S.monthPill}>Water · {labelFromStart(waterStart) || "New period"}</div>
-              <div style={S.monthRange}>{fmtDate(waterStart)} → {fmtDate(waterEnd)}</div>
+          <div onClick={() => setTab("home")} style={{ ...S.avatar, width: 34, height: 34, fontSize: 13, cursor: "pointer" }}>{initialsOf(myName)}</div>
+        </header>
+      ) : (
+        <>
+        <header style={S.header}>
+          <div style={S.headLeft}>
+            <div onClick={() => setTab("home")} style={{ ...S.mark, background: T.brandDark, cursor: "pointer" }} title="Home">
+              {[5,4,3,2,1].map((fl) => (<div key={fl} style={S.markRow}>{[0,1,2].map((c) => <span key={c} style={S.markDot} />)}</div>))}
             </div>
-          ) : isMaintTab ? (
-            <div style={S.monthBox}>
-              <div style={S.monthPill}>Maintenance · {labelFromStart(maintStart) || "New period"}</div>
-              <div style={S.monthRange}>{fmtDate(maintStart)} → {fmtDate(maintEnd)}</div>
+            <div>
+              <div style={S.brandRow}>
+                <select value={bid} style={S.switcher} onChange={(e) => onSwitch(e.target.value)}>
+                  {(buildings || []).map((b) => <option key={b.bid} value={b.bid} style={{ color: T.ink, background: "#fff" }}>{b.name}</option>)}
+                </select>
+                <button style={S.newBldBtn} onClick={onNewBuilding} title="Create or join another building">＋</button>
+              </div>
+              <div style={S.brandSub}>{[config.city, config.state].filter(Boolean).join(", ") || "Shared ledger"} · {nRes} flats</div>
             </div>
-          ) : (
-            <div style={S.monthBox}>
-              <div style={S.monthPill}>Water {dw.label} · Maint {dm.label}</div>
-              <div style={S.monthRange}>W {fmtDate(dw.start)}→{fmtDate(dw.end)} · M {fmtDate(dm.start)}→{fmtDate(dm.end)}</div>
+          </div>
+          <div style={S.headRight}>
+            {isWaterTab ? (
+              <div style={S.monthBox}>
+                <div style={S.monthPill}>Water · {labelFromStart(waterStart) || "New period"}</div>
+                <div style={S.monthRange}>{fmtDate(waterStart)} → {fmtDate(waterEnd)}</div>
+              </div>
+            ) : isMaintTab ? (
+              <div style={S.monthBox}>
+                <div style={S.monthPill}>Maintenance · {labelFromStart(maintStart) || "New period"}</div>
+                <div style={S.monthRange}>{fmtDate(maintStart)} → {fmtDate(maintEnd)}</div>
+              </div>
+            ) : (
+              <div style={S.monthBox}>
+                <div style={S.monthPill}>Water {dw.label} · Maint {dm.label}</div>
+                <div style={S.monthRange}>W {fmtDate(dw.start)}→{fmtDate(dw.end)} · M {fmtDate(dm.start)}→{fmtDate(dm.end)}</div>
+              </div>
+            )}
+            <div style={S.userBox}>
+              <div style={S.avatar}>{initialsOf(myName)}</div>
+              <div style={S.userMeta}>
+                <div style={S.userName}>{myName}</div>
+                <div style={S.userSub}>{roleText(membership, admin, meFlat)}</div>
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  {THEME_LIST.map((t) => (
+                    <button key={t.id} onClick={() => switchTheme(t.id)} title={t.name}
+                      style={{ width: 22, height: 22, borderRadius: "50%", border: themeId === t.id ? "2px solid #fff" : "2px solid transparent",
+                        background: t.color, cursor: "pointer", fontSize: 10, padding: 0 }} />
+                  ))}
+                </div>
+                <select value={config?.language || "en"} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,.85)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}
+                  onChange={(e) => { updateBuilding(bid, { language: e.target.value }); }}>
+                  {LANGUAGES.map((l) => <option key={l.code} value={l.code} style={{ color: "#333", background: "#fff" }}>{l.native}</option>)}
+                </select>
+                <button style={S.signout} onClick={onSignOut}>{t("signOut")}</button>
+              </div>
             </div>
-          ))}
-          <div style={S.userBox}>
-            <div style={{ ...S.avatar, ...(mobile ? { width: 32, height: 32, fontSize: 12 } : {}) }}>{initialsOf(myName)}</div>
-            <div style={S.userMeta}>
-              <div style={{ ...S.userName, ...(mobile ? { fontSize: 13 } : {}) }}>{myName}</div>
-              {!mobile && <div style={S.userSub}>{roleText(membership, admin, meFlat)}</div>}
-              {!mobile && <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                {THEME_LIST.map((t) => (
-                  <button key={t.id} onClick={() => switchTheme(t.id)} title={t.name}
-                    style={{ width: 22, height: 22, borderRadius: "50%", border: themeId === t.id ? "2px solid #fff" : "2px solid transparent",
-                      background: t.color, cursor: "pointer", fontSize: 10, padding: 0 }} />
+          </div>
+        </header>
+        <nav style={S.tabs}>
+          {tabs.map(([k, l]) => (<button key={k} onClick={() => setTab(k)} style={{ ...S.tab, ...(tab === k ? S.tabOn : {}) }}>{l}</button>))}
+        </nav>
+        </>
+      )}
+
+      {/* ===== MOBILE HAMBURGER DRAWER ===== */}
+      {mobile && menuOpen && (
+        <div style={MB.drawerBack} onClick={() => setMenuOpen(false)}>
+          <div style={MB.drawer} onClick={(e) => e.stopPropagation()}>
+            <div style={MB.drawerHeader}>
+              <div style={MB.drawerName}>{config?.name || "Nivasa"}</div>
+              <div style={MB.drawerSub}>{myName} · Flat {meFlat || "—"}</div>
+              <button style={MB.drawerClose} onClick={() => setMenuOpen(false)}>✕</button>
+            </div>
+            <div style={MB.drawerNav}>
+              {tabs.filter(([k]) => k !== "home").map(([k, l]) => (
+                <button key={k} onClick={() => { setTab(k); setMenuOpen(false); }}
+                  style={{ ...MB.drawerItem, ...(tab === k ? MB.drawerItemActive : {}) }}>
+                  {k === "dashboard" ? "📋" : k === "water" ? "💧" : k === "maintenance" ? "🔧" : k === "flat" ? "🏠" : k === "history" ? "📜" : k === "community" ? "📊" : k === "members" ? "👥" : ""} {l}
+                </button>
+              ))}
+            </div>
+            <div style={MB.drawerDivider} />
+            <div style={MB.drawerSection}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".05em" }}>Settings</div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                {THEME_LIST.map((th) => (
+                  <button key={th.id} onClick={() => switchTheme(th.id)}
+                    style={{ width: 32, height: 32, borderRadius: "50%", border: themeId === th.id ? "2.5px solid " + T.ink : "2px solid " + T.line,
+                      background: th.color, cursor: "pointer", fontSize: 12, padding: 0 }} />
                 ))}
-              </div>}
-              <select value={config?.language || "en"} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,.85)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}
-                onChange={(e) => { updateBuilding(bid, { language: e.target.value }); }}>
-                {LANGUAGES.map((l) => <option key={l.code} value={l.code} style={{ color: "#333", background: "#fff" }}>{l.native}</option>)}
-              </select>
-              <button style={S.signout} onClick={onSignOut}>{t("signOut")}</button>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 13, color: T.inkSoft }}>Language:</span>
+                <select value={config?.language || "en"} style={{ padding: "6px 10px", border: "1px solid " + T.line, borderRadius: 8, fontSize: 13, background: "#fff", color: T.ink }}
+                  onChange={(e) => { updateBuilding(bid, { language: e.target.value }); }}>
+                  {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.native}</option>)}
+                </select>
+              </div>
+              <button onClick={() => { onNewBuilding(); setMenuOpen(false); }}
+                style={{ ...MB.drawerItem, color: T.water, fontWeight: 600 }}>＋ Add building</button>
             </div>
+            <div style={MB.drawerDivider} />
+            <button onClick={onSignOut} style={{ ...MB.drawerItem, color: T.owed }}>{t("signOut")}</button>
           </div>
         </div>
-      </header>
+      )}
 
-      <nav style={{ ...S.tabs, ...(mobile ? { padding: "0 12px", gap: 0 } : {}) }}>
-        {tabs.map(([k, l]) => (<button key={k} onClick={() => setTab(k)} style={{ ...S.tab, ...(tab === k ? S.tabOn : {}), ...(mobile ? { padding: "11px 10px", fontSize: 12.5 } : {}) }}>{l}</button>))}
-      </nav>
-
-      <main style={{ ...S.main, ...(mobile ? { padding: "16px 12px" } : {}) }}>
+      <main style={{ ...S.main, ...(mobile ? { padding: "16px 14px", paddingBottom: dirty ? 80 : 90 } : {}) }}>
         {tab === "home" && (
           <HomeHub
             myName={myName} meFlat={meFlat} admin={admin} mobile={mobile} t={t}
@@ -337,7 +394,24 @@ export default function Dashboard({
           </div>
         </div>
       )}
-      {!dirty && <footer style={S.footer}>Everyone sees updates the moment an editor saves.</footer>}
+      {!dirty && <footer style={{ ...S.footer, ...(mobile ? { paddingBottom: 70 } : {}) }}>Everyone sees updates the moment an editor saves.</footer>}
+
+      {/* ===== MOBILE BOTTOM NAV ===== */}
+      {mobile && !dirty && (
+        <nav style={MB.bottomNav}>
+          {[
+            ["home", "🏠", t("home")],
+            ["water", "💧", t("water")],
+            ["maintenance", "🔧", t("maintenance")],
+            ["community", "📊", t("community")],
+          ].map(([k, icon, label]) => (
+            <button key={k} onClick={() => setTab(k)} style={{ ...MB.bottomNavItem, ...(tab === k ? MB.bottomNavItemActive : {}) }}>
+              <span style={{ fontSize: 20 }}>{icon}</span>
+              <span style={{ fontSize: 10, marginTop: 2 }}>{label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }
@@ -1289,4 +1363,67 @@ const H = {
   cardLabel: { fontFamily: display, fontWeight: 700, fontSize: 15, color: T.ink },
   cardSub: { fontSize: 12, color: T.muted, marginTop: 2 },
   cardValue: { fontFamily: mono, fontWeight: 700, fontSize: 16, marginTop: 6 },
+};
+
+/* ---- Mobile-specific styles ---- */
+const MB = {
+  header: {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "12px 16px", background: T.water, color: "#fff",
+    position: "sticky", top: 0, zIndex: 30,
+  },
+  hamburger: {
+    background: "none", border: "none", color: "#fff", fontSize: 22,
+    cursor: "pointer", padding: "4px 8px", lineHeight: 1,
+  },
+  headerCenter: { flex: 1, textAlign: "center" },
+  buildingSelect: {
+    fontFamily: display, fontWeight: 700, fontSize: 17, color: "#fff",
+    background: "transparent", border: "none", textAlign: "center",
+    cursor: "pointer", maxWidth: 200,
+  },
+  drawerBack: {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,.4)",
+    zIndex: 60, display: "flex",
+  },
+  drawer: {
+    width: "min(300px, 80vw)", height: "100%", background: T.surface,
+    boxShadow: "4px 0 20px rgba(0,0,0,.15)", overflowY: "auto",
+    display: "flex", flexDirection: "column",
+  },
+  drawerHeader: {
+    padding: "20px 18px 16px", background: T.water, color: "#fff",
+    position: "relative",
+  },
+  drawerName: { fontFamily: display, fontWeight: 700, fontSize: 18 },
+  drawerSub: { fontSize: 13, opacity: 0.85, marginTop: 4 },
+  drawerClose: {
+    position: "absolute", top: 14, right: 14, background: "rgba(255,255,255,.2)",
+    border: "none", color: "#fff", width: 28, height: 28, borderRadius: "50%",
+    cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center",
+  },
+  drawerNav: { padding: "12px 0", flex: 1 },
+  drawerItem: {
+    display: "flex", alignItems: "center", gap: 12, width: "100%",
+    padding: "12px 20px", border: "none", background: "none",
+    fontSize: 15, color: T.ink, cursor: "pointer", fontFamily: font,
+    textAlign: "left",
+  },
+  drawerItemActive: { background: T.waterSoft, color: T.water, fontWeight: 700 },
+  drawerDivider: { height: 1, background: T.line, margin: "4px 16px" },
+  drawerSection: { padding: "12px 20px" },
+  bottomNav: {
+    position: "fixed", bottom: 0, left: 0, right: 0,
+    display: "flex", justifyContent: "space-around", alignItems: "center",
+    background: T.surface, borderTop: "1px solid " + T.line,
+    padding: "6px 0 env(safe-area-inset-bottom, 6px)",
+    zIndex: 30, boxShadow: "0 -2px 10px rgba(0,0,0,.06)",
+  },
+  bottomNavItem: {
+    display: "flex", flexDirection: "column", alignItems: "center",
+    border: "none", background: "none", color: T.muted,
+    cursor: "pointer", padding: "4px 12px", fontFamily: font, fontWeight: 500,
+    minWidth: 56,
+  },
+  bottomNavItemActive: { color: T.water, fontWeight: 700 },
 };
