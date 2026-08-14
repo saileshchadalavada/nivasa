@@ -28,12 +28,12 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                     <span style={{ fontWeight: 700, fontSize: 15 }}>{u.username}</span>
                     {isFounder && <span style={M.badge}>founder</span>}
                     <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>
-                      {typeLabel || "\u2014"}{!hasRole && <span style={M.memberTag}>view-only</span>}
+                      {typeLabel || "—"}{!hasRole && <span style={M.memberTag}>view-only</span>}
                     </div>
                   </div>
                   <select className="cell" style={{ ...S.cellSelect, fontSize: 13 }} value={u.flat || ""}
                     onChange={(e) => adminAssignFlat(bid, u.uid, e.target.value || null, u.flat || null)}>
-                    <option value="">\u2014 none \u2014</option>
+                    <option value="">— none —</option>
                     {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
                   </select>
                 </div>
@@ -79,7 +79,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                   <td style={{ ...S.td, padding: "4px 8px" }}>
                     <select className="cell" style={S.cellSelect} value={u.flat || ""}
                       onChange={(e) => adminAssignFlat(bid, u.uid, e.target.value || null, u.flat || null)}>
-                      <option value="">\u2014 none \u2014</option>
+                      <option value="">— none —</option>
                       {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
                     </select>
                   </td>
@@ -92,7 +92,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                     {(() => {
                       const hasRole = isFounder || u.roles?.includes("admin") || u.roles?.includes("treasurer") || u.roles?.includes("water");
                       const typeLabel = u.residentType === "tenant" ? "Tenant" : u.residentType === "owner" ? "Owner" : "";
-                      return <span>{typeLabel || "\u2014"}{!hasRole && <span style={M.memberTag}>Member \u00B7 view-only</span>}</span>;
+                      return <span>{typeLabel || "—"}{!hasRole && <span style={M.memberTag}>Member · view-only</span>}</span>;
                     })()}
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
