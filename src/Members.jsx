@@ -1,6 +1,6 @@
 import React from "react";
 import { setMemberRoles, adminAssignFlat, updateMembership, removeMember } from "./data";
-import { styles as S, T } from "./styles";
+import { styles as S, T, font } from "./styles";
 
 /* Admin-only: grant/revoke per-building roles, override a member's flat. */
 export default function Members({ bid, members, flats, config, onDeleteBuilding, onImportWater2026, canImportWater2026, mobile }) {
