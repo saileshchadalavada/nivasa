@@ -11,20 +11,22 @@ export default function Setup({ adminUid, username, existingNames = [], onDone, 
   const [perFloor, setPerFloor] = useState(DEFAULT_PER_FLOOR);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [prefill, setPrefill] = useState(false);
 
   const set = (k, v) => setD((o) => ({ ...o, [k]: v }));
-  const preview = buildFlatsForSetup(floors, perFloor, prefill).filter((f) => !f.isCommon);
+  const preview = buildFlatsForSetup(parseInt(floors) || 1, parseInt(perFloor) || 1, false).filter((f) => !f.isCommon);
 
   const finish = async () => {
     setErr("");
     if (!d.name.trim()) { setStep(1); return setErr("Building name is required."); }
+    const f = parseInt(floors); const pf = parseInt(perFloor);
+    if (!f || f < 1 || f > 99) { setStep(3); return setErr("Number of floors must be between 1 and 99."); }
+    if (!pf || pf < 1 || pf > 20) { setStep(3); return setErr("Flats per floor must be between 1 and 20."); }
     if (existingNames.some((n) => n.trim().toLowerCase() === d.name.trim().toLowerCase())) {
       setStep(1); return setErr(`You already have a building called "${d.name.trim()}". Use a different name.`);
     }
     setBusy(true);
     try {
-      const bid = await createBuilding({ details: d, floors, perFloor, adminUid, username, prefill });
+      const bid = await createBuilding({ details: d, floors: f, perFloor: pf, adminUid, username, prefill: false });
       onDone(bid);
     } catch (e) {
       setErr("Couldn't create the building. " + (e?.message || ""));
@@ -73,21 +75,11 @@ export default function Setup({ adminUid, username, existingNames = [], onDone, 
             <h2 style={P.h}>Floors & flats</h2>
             <Row>
               <Field label="Number of floors" type="number" value={floors}
-                onChange={(v) => setFloors(Math.max(1, Math.min(30, parseInt(v) || 1)))} />
+                onChange={(v) => setFloors(v === "" ? "" : parseInt(v) || "")} />
               <Field label="Flats per floor" type="number" value={perFloor}
-                onChange={(v) => setPerFloor(Math.max(1, Math.min(12, parseInt(v) || 1)))} />
+                onChange={(v) => setPerFloor(v === "" ? "" : parseInt(v) || "")} />
             </Row>
-            {String(username || "").toLowerCase().startsWith("sailesh") && (
-              <label style={P.prefillBox}>
-                <input type="checkbox" checked={prefill} onChange={(e) => setPrefill(e.target.checked)} style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }} />
-                <span>
-                  <b style={{ color: T.ink }}>Pre-fill with my saved SR GOLD data</b>
-                  <span style={{ display: "block", fontSize: 12, color: T.inkSoft, marginTop: 3, lineHeight: 1.45 }}>
-                    Fills all 15 flats with the real names + meters and seeds the June water &amp; maintenance periods. Leave unticked for a brand-new, blank building.
-                  </span>
-                </span>
-              </label>
-            )}
+
             <div style={P.previewBox}>
               <div style={P.previewLabel}>{preview.length} flats · known ones are pre-filled and editable later</div>
               <div style={P.grid}>

@@ -711,7 +711,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
         </table>
         </div>
       )}
-      <p style={S.note}>Common/Watchman counts toward the general-tanker % but carries no Manjeera or connection share. The Previous (opening) reading carries from last period but is editable — override it if a meter was reset or replaced.</p>
+      <p style={S.note}>{water.rows.some((r) => r.isCommon) ? "Common/Watchman counts toward the general-tanker % but carries no Manjeera or connection share. " : ""}The Previous (opening) reading carries from last period but is editable — override it if a meter was reset or replaced.</p>
       {canEdit && <PublishBar onPublish={onPublish} publishedAt={publishedAt} kind="water" />}
       <PeriodBanner kind="Water" periodStart={periodStart} periodEnd={periodEnd} />
     </>

@@ -28,7 +28,6 @@ function downloadTemplate() {
     "Flat,Reading",
     "101,819408.1",
     "102,353641.6",
-    "Common,619767.4",
   ];
   const blob = new Blob([lines.join("\n")], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
@@ -107,7 +106,7 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
             <textarea
               value={raw}
               onChange={(e) => setRaw(e.target.value)}
-              placeholder={"Flat,Reading\n101,819408.1\n102,353641.6\n201,548577.6\nCommon,619767.4"}
+              placeholder={"Flat,Reading\n101,819408.1\n102,353641.6\n201,548577.6"}
               rows={10}
               style={M.textarea}
             />
