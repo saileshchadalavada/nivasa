@@ -48,10 +48,24 @@ service cloud.firestore {
       function myRoles() { return get(/databases/$(database)/documents/buildings/$(bid)/members/$(uid())).data.roles; }
       function isAdmin() { return signedIn() && hasCfg() && (uid() == cfg().adminUid || (isMember() && myRoles().hasAny(['admin']))); }
 
-      // SEC-04: role-specific edit helpers (replaces canEditMonth)
+      // SEC-04: role-specific edit helpers
       function hasRole(role) { return isMember() && myRoles().hasAny([role]); }
       function canEditWater() { return isAdmin() || hasRole('water'); }
       function canEditMaint() { return isAdmin() || hasRole('treasurer'); }
+
+      // DB-09: shared validation helpers
+      function validRoles(roles) {
+        return roles is list
+          && roles.hasOnly(['admin', 'treasurer', 'water']);
+      }
+      function validResidentType(value) {
+        return value == 'owner' || value == 'tenant';
+      }
+      function validActivityType() {
+        return request.resource.data.type == 'announcement'
+          || request.resource.data.type == 'poll'
+          || request.resource.data.type == 'meeting';
+      }
 
       allow read: if true;
       allow create: if signedIn() && request.resource.data.adminUid == uid();
@@ -59,15 +73,55 @@ service cloud.firestore {
 
       // ── members ──
       match /members/{m} {
+        // Self-update: profile fields only (phone, residentType). Flat and roles immutable.
+        function selfProfileUpdate() {
+          return signedIn()
+            && uid() == m
+            && request.resource.data.roles == resource.data.roles
+            && request.resource.data.flat == resource.data.flat
+            && request.resource.data.diff(resource.data)
+                 .affectedKeys()
+                 .hasOnly(['phone', 'residentType'])
+            && validResidentType(request.resource.data.residentType);
+        }
+
+        // Onboarding: allow setting flat once, only if the flat is already claimed by this user.
+        // This is a temporary bridge until Phase 2 transactional claim flow.
+        function selfFlatAssignment() {
+          return signedIn()
+            && uid() == m
+            && resource.data.flat == null
+            && request.resource.data.flat is string
+            && request.resource.data.diff(resource.data)
+                 .affectedKeys()
+                 .hasOnly(['flat'])
+            && get(
+                 /databases/$(database)/documents/buildings/$(bid)/flats/$(request.resource.data.flat)
+               ).data.claimedByUid == uid();
+        }
+
         allow read: if isMember() || isAdmin();
-        allow create: if (uid() == m && request.resource.data.roles.size() == 0) || isAdmin();
-        // DB-09: restrict self-update to safe fields only; roles are immutable by self
-        allow update: if isAdmin()
-          || (uid() == m
-              && request.resource.data.roles == resource.data.roles
-              && request.resource.data.flat == resource.data.flat
-              && request.resource.data.diff(resource.data).affectedKeys()
-                   .hasOnly(['phone', 'residentType']));
+
+        allow create: if signedIn()
+          && (
+            (
+              uid() == m
+              && request.resource.data.roles is list
+              && request.resource.data.roles.size() == 0
+            )
+            || (
+              isAdmin()
+              && validRoles(request.resource.data.roles)
+            )
+          );
+
+        allow update: if (
+            isAdmin()
+            && validRoles(request.resource.data.roles)
+          )
+          || selfProfileUpdate()
+          || selfFlatAssignment();
+
         allow delete: if isAdmin();
       }
 
@@ -98,32 +152,64 @@ service cloud.firestore {
         allow write: if canEditMaint() || (signedIn() && !hasCfg());
       }
 
-      // ── activities ── SEC-05: admin-only create/update/delete
+      // ── activities ── SEC-05: admin-only create/update/delete with schema validation
       match /activities/{a} {
         allow read: if isMember();
-        allow create: if isAdmin();
-        // DB-09: restrict activity updates to admin (no broad member write)
+
+        // DB-09: validate activity schema on creation
+        allow create: if isAdmin()
+          && request.resource.data.keys().hasOnly([
+               'type', 'title', 'body', 'status', 'createdBy',
+               'createdAt', 'updatedAt', 'poll', 'meeting'
+             ])
+          && validActivityType()
+          && request.resource.data.title is string
+          && request.resource.data.title.size() >= 1
+          && request.resource.data.title.size() <= 150
+          && request.resource.data.body is string
+          && request.resource.data.body.size() <= 5000;
+
         allow update: if isAdmin();
         allow delete: if isAdmin();
 
         // SEC-05 / FUNC-02: votes as subcollection, one doc per voter UID
+        // Hardened: validates option range and flat identity
         match /votes/{voterUid} {
+          function activityData() {
+            return get(
+              /databases/$(database)/documents/buildings/$(bid)/activities/$(a)
+            ).data;
+          }
+          function memberData() {
+            return get(
+              /databases/$(database)/documents/buildings/$(bid)/members/$(uid())
+            ).data;
+          }
+          function validVote() {
+            return request.resource.data.keys()
+                     .hasOnly(['optionIdx', 'flat', 'updatedAt'])
+              && request.resource.data.optionIdx is int
+              && request.resource.data.optionIdx >= 0
+              && activityData().type == 'poll'
+              && request.resource.data.optionIdx
+                   < activityData().poll.options.size()
+              && request.resource.data.flat == memberData().flat;
+          }
+
           allow read: if isMember();
           allow create, update: if signedIn()
             && uid() == voterUid
             && isMember()
-            && request.resource.data.keys().hasOnly(['optionIdx', 'flat', 'updatedAt'])
-            && request.resource.data.optionIdx is int
-            && request.resource.data.optionIdx >= 0
-            && request.resource.data.flat is string;
-          allow delete: if signedIn() && (uid() == voterUid || isAdmin());
+            && validVote();
+          allow delete: if signedIn()
+            && isMember()
+            && (uid() == voterUid || isAdmin());
         }
       }
 
       // ── cost presets ──
       match /costPresets/{p} {
         allow read: if isMember();
-        // SEC-04: cost presets relate to water billing
         allow write: if canEditWater();
       }
     }
