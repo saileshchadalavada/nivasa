@@ -1291,7 +1291,7 @@ function SpecialExpenses({ config, bid, canEdit, expenses, setExpenses }) {
       paidBy: "fund",
       recurring: isMultiMonth, // multi-month = recurring
     };
-    setExpenses([...expenses, newExp]);
+    setExpenses((xs) => [...xs, newExp]);
     const newCollected = (item.collected || 0) + perMonth;
     const done = newCollected >= item.amount;
     save(allItems.map((i) => i.id === item.id
