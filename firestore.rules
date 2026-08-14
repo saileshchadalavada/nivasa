@@ -53,6 +53,20 @@ service cloud.firestore {
       function canEditWater() { return isAdmin() || hasRole('water'); }
       function canEditMaint() { return isAdmin() || hasRole('treasurer'); }
 
+      // Item 6: allow child creation during atomic building setup batch
+      function cfgAfter() {
+        return getAfter(
+          /databases/$(database)/documents/buildings/$(bid)
+        ).data;
+      }
+      function isCreatingBuildingAsAdmin() {
+        return signedIn()
+          && existsAfter(
+               /databases/$(database)/documents/buildings/$(bid)
+             )
+          && cfgAfter().adminUid == uid();
+      }
+
       // DB-09: shared validation helpers
       function validRoles(roles) {
         return roles is list
@@ -61,11 +75,6 @@ service cloud.firestore {
       function validResidentType(value) {
         return value == 'owner' || value == 'tenant';
       }
-      function validActivityType() {
-        return request.resource.data.type == 'announcement'
-          || request.resource.data.type == 'poll'
-          || request.resource.data.type == 'meeting';
-      }
 
       allow read: if true;
       allow create: if signedIn() && request.resource.data.adminUid == uid();
@@ -73,7 +82,25 @@ service cloud.firestore {
 
       // ── members ──
       match /members/{m} {
-        // Self-update: profile fields only (phone, residentType). Flat and roles immutable.
+        // Item 5: member document shape validation
+        function validMemberShape(data) {
+          return data.keys().hasOnly([
+              'username',
+              'flat',
+              'roles',
+              'residentType',
+              'phone',
+              'joinedAt'
+            ])
+            && data.username is string
+            && data.username.size() >= 1
+            && data.username.size() <= 50
+            && data.roles is list
+            && validRoles(data.roles)
+            && validResidentType(data.residentType)
+            && data.joinedAt is int;
+        }
+
         function selfProfileUpdate() {
           return signedIn()
             && uid() == m
@@ -85,8 +112,6 @@ service cloud.firestore {
             && validResidentType(request.resource.data.residentType);
         }
 
-        // Onboarding: allow setting flat once, only if the flat is already claimed by this user.
-        // This is a temporary bridge until Phase 2 transactional claim flow.
         function selfFlatAssignment() {
           return signedIn()
             && uid() == m
@@ -102,17 +127,16 @@ service cloud.firestore {
 
         allow read: if isMember() || isAdmin();
 
+        // Item 5: validate member shape on creation
         allow create: if signedIn()
+          && validMemberShape(request.resource.data)
           && (
             (
               uid() == m
-              && request.resource.data.roles is list
               && request.resource.data.roles.size() == 0
+              && request.resource.data.flat == null
             )
-            || (
-              isAdmin()
-              && validRoles(request.resource.data.roles)
-            )
+            || isAdmin()
           );
 
         allow update: if (
@@ -126,10 +150,10 @@ service cloud.firestore {
       }
 
       // ── flats ──
-      // SEC-06: restrict self-claim to approved fields; structural fields immutable
+      // SEC-06 + Item 6: orphan prevention with isCreatingBuildingAsAdmin
       match /flats/{flat} {
         allow read: if isMember();
-        allow create: if isAdmin() || (signedIn() && !hasCfg());
+        allow create: if isAdmin() || isCreatingBuildingAsAdmin();
         allow update: if isAdmin()
           || (isMember()
               && resource.data.claimedByUid == null
@@ -140,40 +164,57 @@ service cloud.firestore {
         allow delete: if isAdmin();
       }
 
-      // ── water periods ── SEC-04: water role only
+      // ── water periods ── SEC-04 + Item 6
       match /waterPeriods/{p} {
         allow read: if isMember();
-        allow write: if canEditWater() || (signedIn() && !hasCfg());
+        allow create: if canEditWater() || isCreatingBuildingAsAdmin();
+        allow update, delete: if canEditWater();
       }
 
-      // ── maintenance periods ── SEC-04: treasurer role only
+      // ── maintenance periods ── SEC-04 + Item 6
       match /maintPeriods/{p} {
         allow read: if isMember();
-        allow write: if canEditMaint() || (signedIn() && !hasCfg());
+        allow create: if canEditMaint() || isCreatingBuildingAsAdmin();
+        allow update, delete: if canEditMaint();
       }
 
-      // ── activities ── SEC-05: admin-only create/update/delete with schema validation
+      // ── activities ── SEC-05 + Item 4: validated create and update
       match /activities/{a} {
-        allow read: if isMember();
-
-        // DB-09: validate activity schema on creation
-        allow create: if isAdmin()
-          && request.resource.data.keys().hasOnly([
+        function validActivity(data) {
+          return data.keys().hasOnly([
                'type', 'title', 'body', 'status', 'createdBy',
                'createdAt', 'updatedAt', 'poll', 'meeting'
              ])
-          && validActivityType()
-          && request.resource.data.title is string
-          && request.resource.data.title.size() >= 1
-          && request.resource.data.title.size() <= 150
-          && request.resource.data.body is string
-          && request.resource.data.body.size() <= 5000;
+            && (
+                 data.type == 'announcement'
+                 || data.type == 'poll'
+                 || data.type == 'meeting'
+               )
+            && data.title is string
+            && data.title.size() >= 1
+            && data.title.size() <= 150
+            && data.body is string
+            && data.body.size() <= 5000
+            && data.createdBy is string
+            && data.createdAt is int
+            && data.updatedAt is int;
+        }
 
-        allow update: if isAdmin();
+        allow read: if isMember();
+
+        allow create: if isAdmin()
+          && validActivity(request.resource.data);
+
+        // Item 4: validate updates + protect createdBy and createdAt
+        allow update: if isAdmin()
+          && validActivity(request.resource.data)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt;
+
         allow delete: if isAdmin();
 
-        // SEC-05 / FUNC-02: votes as subcollection, one doc per voter UID
-        // Hardened: validates option range and flat identity
+        // SEC-05 / FUNC-02: votes subcollection
+        // Item 2: handle null flat; Item 3: validate updatedAt type
         match /votes/{voterUid} {
           function activityData() {
             return get(
@@ -191,9 +232,17 @@ service cloud.firestore {
               && request.resource.data.optionIdx is int
               && request.resource.data.optionIdx >= 0
               && activityData().type == 'poll'
+              && activityData().poll.options is list
               && request.resource.data.optionIdx
                    < activityData().poll.options.size()
-              && request.resource.data.flat == memberData().flat;
+              && request.resource.data.flat is string
+              && request.resource.data.flat
+                   == (
+                        memberData().flat == null
+                          ? ''
+                          : memberData().flat
+                      )
+              && request.resource.data.updatedAt is int;
           }
 
           allow read: if isMember();
@@ -201,9 +250,9 @@ service cloud.firestore {
             && uid() == voterUid
             && isMember()
             && validVote();
-          allow delete: if signedIn()
-            && isMember()
-            && (uid() == voterUid || isAdmin());
+          // Item 7: simplified delete permission
+          allow delete: if isAdmin()
+            || (signedIn() && isMember() && uid() == voterUid);
         }
       }
 

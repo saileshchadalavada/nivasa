@@ -266,7 +266,19 @@ export async function createActivity(bid, activity) {
 }
 export const updateActivity = (bid, id, patch) =>
   updateDoc(activityRef(bid, id), { ...patch, updatedAt: Date.now() });
-export const deleteActivity = (bid, id) => deleteDoc(activityRef(bid, id));
+/* Item 7: delete vote subcollection before the activity document.
+   Firestore does not recursively delete child collections from client code. */
+export async function deleteActivity(bid, activityId) {
+  const votes = await getDocs(votesCol(bid, activityId));
+  let batch = writeBatch(db), count = 0;
+  for (const vote of votes.docs) {
+    batch.delete(vote.ref);
+    count++;
+    if (count === 400) { await batch.commit(); batch = writeBatch(db); count = 0; }
+  }
+  if (count > 0) await batch.commit();
+  await deleteDoc(activityRef(bid, activityId));
+}
 /* SEC-05 / FUNC-02: votes stored as one document per voter UID in a subcollection.
    Document ID = authenticated UID, so each person gets exactly one vote. */
 export const castVote = (bid, activityId, voterUid, optionIdx, flat) =>
