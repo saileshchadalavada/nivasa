@@ -15,6 +15,7 @@ import Community from "./Community";
 import { styles as S, T, css, display, mono, font, applyTheme } from "./styles";
 import { THEME_LIST, getThemeId, setThemeId } from "./theme";
 import { useT, LANGUAGES } from "./i18n";
+import Dangle, { DANGLES, getSavedDangle, saveDangle } from "./Dangle";
 
 /* Responsive hook — cards on mobile, table on desktop */
 function useIsMobile(breakpoint = 640) {
@@ -58,6 +59,7 @@ export default function Dashboard({
   const [openFlat, setOpenFlat] = useState(null);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [dangleType, setDangleType] = useState(() => getSavedDangle());
   const [confirmModal, setConfirmModal] = useState(null); // { title, message, confirmLabel, confirmColor, onConfirm }
   const [publish, setPublish] = useState(null);
   const [themeId, _setTheme] = useState(getThemeId());
@@ -212,15 +214,23 @@ export default function Dashboard({
 
       {/* ===== MOBILE HEADER ===== */}
       {mobile ? (
+        <>
         <header style={MB.header}>
           <button onClick={() => setMenuOpen(true)} style={MB.hamburger}>☰</button>
           <div style={MB.headerCenter}>
+            <div style={{ fontSize: 10, opacity: 0.7, letterSpacing: ".05em", textTransform: "uppercase" }}>Nivasa</div>
             <select value={bid} style={MB.buildingSelect} onChange={(e) => onSwitch(e.target.value)}>
               {(buildings || []).map((b) => <option key={b.bid} value={b.bid} style={{ color: "#333", background: "#fff" }}>{b.name}</option>)}
             </select>
           </div>
-          <div onClick={() => setTab("home")} style={{ ...S.avatar, width: 34, height: 34, fontSize: 13, cursor: "pointer" }}>{initialsOf(myName)}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div onClick={() => setTab("home")} style={{ ...S.avatar, width: 34, height: 34, fontSize: 13, cursor: "pointer" }}>{initialsOf(myName)}</div>
+          </div>
         </header>
+        <div style={MB.dangleBar}>
+          <Dangle type={dangleType} />
+        </div>
+        </>
       ) : (
         <>
         <header style={S.header}>
@@ -302,6 +312,19 @@ export default function Dashboard({
             <div style={MB.drawerDivider} />
             <div style={MB.drawerSection}>
               <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".05em" }}>Settings</div>
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 13, color: T.inkSoft, display: "block", marginBottom: 6 }}>Dangle charm:</span>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {DANGLES.map((d) => (
+                    <button key={d.id} onClick={() => { setDangleType(d.id); saveDangle(d.id); }}
+                      style={{ padding: "6px 10px", border: dangleType === d.id ? "2px solid " + T.water : "1.5px solid " + T.line,
+                        borderRadius: 8, fontSize: 13, cursor: "pointer",
+                        background: dangleType === d.id ? T.waterSoft : "#fff", fontFamily: font }}>
+                      {d.emoji} {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
                 {THEME_LIST.map((th) => (
                   <button key={th.id} onClick={() => switchTheme(th.id)}
@@ -1539,6 +1562,11 @@ const MB = {
   drawerItemActive: { background: T.waterSoft, color: T.water, fontWeight: 700 },
   drawerDivider: { height: 1, background: T.line, margin: "4px 16px" },
   drawerSection: { padding: "12px 20px" },
+  dangleBar: {
+    display: "flex", justifyContent: "center", paddingTop: 2, paddingBottom: 4,
+    background: "linear-gradient(to bottom, rgba(99,102,241,.08), transparent)",
+    minHeight: 52,
+  },
   bottomNav: {
     position: "fixed", bottom: 0, left: 0, right: 0,
     display: "flex", justifyContent: "space-around", alignItems: "center",
