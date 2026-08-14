@@ -541,7 +541,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
       )}
       {showCsv && (
         <CsvUpload existingFlats={flats}
-          onApply={(map) => Object.entries(map).forEach(([flat, val]) => setReading(flat, "curr", String(val)))}
+          onApply={(map, target) => Object.entries(map).forEach(([flat, val]) => setReading(flat, target || "curr", String(val)))}
           onClose={() => setShowCsv(false)} />
       )}
       {!canEdit && <ViewNote>You have view access. Ask the water in-charge or admin to make changes.</ViewNote>}

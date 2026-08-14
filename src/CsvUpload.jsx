@@ -44,6 +44,7 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
   const [raw, setRaw] = useState("");
   const [rows, setRows] = useState([]);
   const [step, setStep] = useState("input");
+  const [target, setTarget] = useState("curr");  // "curr" or "prev"
 
   const flatSet = useMemo(() => new Set(existingFlats.map((f) => f.flat)), [existingFlats]);
 
@@ -71,7 +72,7 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
       const val = parseFloat(String(r.reading).replace(/[^\d.]/g, "")) || 0;
       if (val > 0) map[r.flat] = val;
     });
-    onApply(map);
+    onApply(map, target);
     onClose();
   };
 
@@ -102,6 +103,17 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
                 ⬇ Download template
               </button>
               <span style={{ fontSize: 12.5, color: T.muted }}>or paste below</span>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              {["curr", "prev"].map((t) => (
+                <button key={t} onClick={() => setTarget(t)}
+                  style={{ flex: 1, padding: "10px", borderRadius: 10, cursor: "pointer", fontWeight: 600, fontSize: 13.5,
+                    border: `1.5px solid ${target === t ? T.water : T.line}`,
+                    background: target === t ? T.waterSoft : "#fff",
+                    color: target === t ? T.water : T.inkSoft, fontFamily: font }}>
+                  {t === "curr" ? "Current readings" : "Previous readings (initial setup)"}
+                </button>
+              ))}
             </div>
             <textarea
               value={raw}
@@ -140,7 +152,7 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
                   <thead>
                     <tr>
                       <th style={S.th}>Flat</th>
-                      <th style={{ ...S.th, textAlign: "right" }}>Reading from CSV</th>
+                      <th style={{ ...S.th, textAlign: "right" }}>{target === "curr" ? "Current reading" : "Previous reading"}</th>
                       <th style={{ ...S.th, textAlign: "center" }}>Status</th>
                     </tr>
                   </thead>
@@ -164,7 +176,7 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
                 <button style={S.ghostBtn2} onClick={onClose}>Cancel</button>
                 <button className="primaryBtn" style={{ ...S.primaryBtn, opacity: matched.length ? 1 : 0.5 }}
                   disabled={!matched.length} onClick={apply}>
-                  Apply {matched.length} reading{matched.length !== 1 ? "s" : ""}
+                  Apply {matched.length} {target === "curr" ? "current" : "previous"} reading{matched.length !== 1 ? "s" : ""}
                 </button>
               </span>
             </div>
