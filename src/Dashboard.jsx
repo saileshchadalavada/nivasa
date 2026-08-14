@@ -353,7 +353,7 @@ export default function Dashboard({
         </div>
       )}
 
-      <main style={{ ...S.main, ...(mobile ? { padding: "16px 14px", paddingBottom: dirty ? 80 : 90 } : {}) }}>
+      <main style={{ ...S.main, ...(mobile ? { padding: "16px 14px", paddingBottom: dirty ? 90 : 110 } : {}) }}>
         {tab === "home" && (
           <HomeHub
             myName={myName} meFlat={meFlat} admin={admin} mobile={mobile} t={t}
@@ -1767,7 +1767,7 @@ const MB = {
     position: "fixed", bottom: 0, left: 0, right: 0,
     display: "flex", justifyContent: "space-around", alignItems: "center",
     background: T.surface, borderTop: "1px solid " + T.line,
-    padding: "6px 0 env(safe-area-inset-bottom, 6px)",
+    padding: "8px 0 max(env(safe-area-inset-bottom, 12px), 12px)",
     zIndex: 30, boxShadow: "0 -2px 10px rgba(0,0,0,.06)",
   },
   bottomNavItem: {
