@@ -40,6 +40,28 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ── SEC-03: public building discovery (name, city, state only) ──
+    match /publicBuildings/{bid} {
+      allow read: if true;
+      // Create: allowed during building creation batch (building doc exists after commit)
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['name', 'city', 'state', 'type'])
+        && request.resource.data.name is string
+        && existsAfter(/databases/$(database)/documents/buildings/$(bid))
+        && getAfter(/databases/$(database)/documents/buildings/$(bid)).data.adminUid == request.auth.uid;
+      // Update/delete: only building admin
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['name', 'city', 'state'])
+        && exists(/databases/$(database)/documents/buildings/$(bid))
+        && (request.auth.uid == get(/databases/$(database)/documents/buildings/$(bid)).data.adminUid
+            || get(/databases/$(database)/documents/buildings/$(bid)/members/$(request.auth.uid)).data.roles.hasAny(['admin']));
+      allow delete: if signedIn()
+        && exists(/databases/$(database)/documents/buildings/$(bid))
+        && (request.auth.uid == get(/databases/$(database)/documents/buildings/$(bid)).data.adminUid
+            || get(/databases/$(database)/documents/buildings/$(bid)/members/$(request.auth.uid)).data.roles.hasAny(['admin']));
+    }
+
     // ── /buildings/{bid} ──
     match /buildings/{bid} {
       function cfg() { return get(/databases/$(database)/documents/buildings/$(bid)).data; }
@@ -76,7 +98,8 @@ service cloud.firestore {
         return value == 'owner' || value == 'tenant';
       }
 
-      allow read: if true;
+      // SEC-03: building config readable by authenticated users only
+      allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.adminUid == uid();
       allow update, delete: if isAdmin();
 
