@@ -185,7 +185,9 @@ export async function startNextMaintPeriod(bid, current) {
   const corpus = bldData.corpus || {};
   const corpusMonthly = Number(corpus.monthly || 0);
 
-  const surplus = charge != null ? (charge * nFlats - total - corpusMonthly * nFlats) + prevCarry : prevCarry;
+  // FIN-06: surplus = maintenance collections - maintenance expenses.
+  // Corpus is billed and deposited separately; it does not reduce maintenance surplus.
+  const surplus = charge != null ? (charge * nFlats - total) + prevCarry : prevCarry;
 
   // Auto-deposit monthly corpus when closing a period
   if (corpusMonthly > 0) {

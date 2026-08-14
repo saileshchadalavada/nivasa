@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { money, money2, labelFromStart, fmtDate, daysBetween } from "./util";
+import { computeWater as computeWaterEngine } from "./billing/waterEngine";
+import { computeMaint as computeMaintEngine } from "./billing/maintenanceEngine";
 import { buildWaterSnapshot, buildMaintSnapshot } from "./snapshot";
 import { generateWaterPoster, generateMaintPoster, sharePoster, canvasToBlob } from "./poster";
 import { HISTORY, HISTORY_MONTHS } from "./historicalWater";
@@ -65,73 +67,9 @@ export default function Dashboard({
 
   const myName = (meFlat && residential.find((f) => f.flat === meFlat)?.name) || membership.username || "Member";
 
-  // reusable calculators
-  const computeWater = (M) => {
-    if (!M) return { rows: [], totalCons: 1, rawCons: 0, resCons: 1, costItems: [], grandTotal: 0 };
-    const rows = allMeters.map((f) => {
-      const r = M.readings?.[f.flat] || { prev: 0, curr: 0, adj: 0 };
-      const cons = Math.max(0, (r.curr || 0) - (r.prev || 0));
-      return { ...f, prev: r.prev || 0, curr: r.curr, adj: r.adj || 0, cons };
-    });
-    const rawCons = rows.reduce((s, r) => s + r.cons, 0);
-    const totalCons = rawCons || 1;
-    const resCons = rows.filter((r) => !r.isCommon).reduce((s, r) => s + r.cons, 0) || 1;
-
-    // Build costItems: use new flexible array if present, else synthesize from legacy fields
-    let costItems;
-    if (M.costItems && M.costItems.length > 0) {
-      costItems = M.costItems.map((ci) => ({
-        ...ci,
-        quantity: Number(ci.quantity) || 0,
-        rate: Number(ci.rate) || 0,
-        total: (Number(ci.quantity) || 0) * (Number(ci.rate) || 0),
-      }));
-    } else {
-      // Legacy: synthesize costItems from genCount/genRate/manCount/manRate/connBill
-      costItems = [];
-      if ((M.genCount || 0) > 0 || (M.genRate || 0) > 0)
-        costItems.push({ id: "_gen", label: "General tankers", quantity: Number(M.genCount) || 0, rate: Number(M.genRate) || 0, total: (Number(M.genCount) || 0) * (Number(M.genRate) || 0), split: "percent" });
-      if ((M.manCount || 0) > 0 || (M.manRate || 0) > 0)
-        costItems.push({ id: "_man", label: "Manjeera tankers", quantity: Number(M.manCount) || 0, rate: Number(M.manRate) || 0, total: (Number(M.manCount) || 0) * (Number(M.manRate) || 0), split: "equal" });
-      if ((M.connBill || 0) > 0)
-        costItems.push({ id: "_conn", label: "Manjeera connection (HMWSSB)", quantity: 1, rate: Number(M.connBill) || 0, total: Number(M.connBill) || 0, split: "equal" });
-    }
-
-    const grandTotal = costItems.reduce((s, ci) => s + ci.total, 0);
-
-    // Per-flat billing: each cost item split independently by its method
-    const detailed = rows.map((r) => {
-      const pct = (r.cons / totalCons) * 100;
-      let bill = 0;
-      const itemShares = costItems.map((ci) => {
-        let share = 0;
-        if (ci.split === "percent") {
-          share = (r.cons / totalCons) * ci.total;
-        } else {
-          // equal — only residential flats pay
-          share = r.isCommon ? 0 : ci.total / nRes;
-        }
-        return { id: ci.id, label: ci.label, share };
-      });
-      bill = itemShares.reduce((s, is) => s + is.share, 0) + (r.isCommon ? 0 : (r.adj || 0));
-      return { ...r, pct, itemShares, bill };
-    });
-    return { rows: detailed, totalCons, rawCons, resCons, costItems, grandTotal };
-  };
-  const computeMaint = (M) => {
-    const exp = (M && M.expenses) || [];
-    const total = exp.reduce((s, e) => s + Number(e.amount || 0), 0);
-    const byMember = {};
-    exp.forEach((e) => { if (e.paidBy && e.paidBy !== "fund") byMember[e.paidBy] = (byMember[e.paidBy] || 0) + Number(e.amount || 0); });
-    const calculated = nRes ? total / nRes : 0;
-    const charge = (M && M.chargePerFlat != null && M.chargePerFlat !== "") ? Number(M.chargePerFlat) : null;
-    const perFlat = charge != null ? charge : calculated;
-    const corpusMonthly = Number((M && config?.corpus?.monthly) || 0);
-    // Surplus = collected - expenses - corpus. Only the maintenance portion carries forward.
-    const surplus = charge != null ? (charge - calculated - corpusMonthly) * nRes : 0;
-    const carryForward = Number((M && M.carryForward) || 0);
-    return { total, perFlat, calculated, charge, surplus, carryForward, byMember, corpusMonthly };
-  };
+  // BUILD-05: use canonical billing engines instead of local formulas
+  const computeWater = (M) => computeWaterEngine(M, allMeters);
+  const computeMaint = (M) => computeMaintEngine(M, nRes, Number(config?.corpus?.monthly || 0));
 
   // edited period (Water/Maintenance tabs)
   const water = useMemo(() => computeWater(waterMonth), [waterMonth, allMeters, nRes]);
@@ -401,7 +339,7 @@ export default function Dashboard({
             startReady={startReadyMaint} saving={saving} mobile={mobile} config={config} bid={bid} />
         )}
         {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} config={config} />}
-        {tab === "history" && <History flat={meFlat} residential={residential} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} />}
+        {tab === "history" && <History flat={meFlat} residential={residential} allFlats={allMeters} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} corpusMonthly={Number(config?.corpus?.monthly || 0)} />}
         {tab === "community" && <Community bid={bid} activities={activities} membership={membership} members={members} config={config} admin={admin} mobile={mobile} />}
         {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} onConfirm={(opts) => setConfirmModal(opts)} />}
       </main>

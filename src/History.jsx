@@ -1,50 +1,57 @@
 import React, { useState, useMemo } from "react";
 import { HISTORY, HISTORY_LABELS } from "./historicalWater";
+import { computeWater } from "./billing/waterEngine";
+import { computeMaint } from "./billing/maintenanceEngine";
 import { money, labelFromStart } from "./util";
 import { styles as S, T, display, mono } from "./styles";
 
 /* Per-flat historical water. Merges the static tracking sheet with any billing
    periods that have been closed inside the app. Admins / water / treasurer can
    view any flat; residents see their own. */
-export default function History({ flat, residential, pastWater = [], pastMaint = [], canPickAny, showSeedHistory }) {
+export default function History({ flat, residential, allFlats, pastWater = [], pastMaint = [], canPickAny, showSeedHistory, corpusMonthly = 0 }) {
   const [pickFlat, setPickFlat] = useState(flat || (residential[0] && residential[0].flat) || "");
   const F = canPickAny ? pickFlat : (flat || pickFlat);
   const nRes = residential.length || 1;
 
-  // water figures per closed water period
+  // FIN-08: use the canonical water engine so the denominator (totalCons including
+  // Common) matches Dashboard exactly. The old code used resCons for some calcs.
   const waterClosed = useMemo(() => pastWater.map((p) => {
     const start = p.periodStart || "";
-    const rows = Object.entries(p.readings || {});
-    const flatSet = new Set(residential.map((f) => f.flat));
-    const consOf = (r) => Math.max(0, (r.curr || 0) - (r.prev || 0));
-    const totalCons = rows.reduce((s, [, r]) => s + consOf(r), 0) || 1;
-    const resCons = rows.reduce((s, [flat, r]) => s + (flatSet.has(flat) ? consOf(r) : 0), 0) || 1;
-    const genCost = (p.genCount || 0) * (p.genRate || 0);
-    const manEqual = ((p.manCount || 0) * (p.manRate || 0)) / nRes;
-    const connEqual = (p.connBill || 0) / nRes;
+    const result = computeWater(p, allFlats || residential);
     const flatsData = {};
-    residential.forEach((f) => {
-      const r = p.readings?.[f.flat] || {};
-      const cons = consOf(r);
-      flatsData[f.flat] = { l: cons, a: Math.round((cons / resCons) * genCost + manEqual + connEqual + (r.adj || 0)) };
+    result.rows.filter((r) => !r.isCommon).forEach((r) => {
+      flatsData[r.flat] = { l: r.cons, a: Math.round(r.bill) };
     });
     return { key: start.slice(0, 7), label: labelFromStart(start), flats: flatsData };
-  }), [pastWater, residential, nRes]);
+  }), [pastWater, allFlats, residential]);
 
-  // maintenance per closed maintenance period (equal split)
+  // FIN-07: use the canonical maintenance engine so History matches Dashboard.
+  // For periods with chargePerFlat, use that; for periods without, use calculated.
   const maintClosed = useMemo(() => pastMaint.map((p) => {
-    const total = (p.expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0);
-    return { key: (p.periodStart || "").slice(0, 7), label: labelFromStart(p.periodStart), maint: Math.round(total / nRes) };
-  }), [pastMaint, nRes]);
+    const result = computeMaint(p, nRes, corpusMonthly);
+    const label = labelFromStart(p.periodStart);
+    return {
+      key: (p.periodStart || "").slice(0, 7),
+      label,
+      maint: Math.round(result.chargedPerFlat),
+      isImported: false,
+    };
+  }), [pastMaint, nRes, corpusMonthly]);
 
   // merge static sheet + closed water + closed maintenance, keyed by month
   const { months, labels, data } = useMemo(() => {
     const d = {};
     if (showSeedHistory) {
-      Object.entries(HISTORY).forEach(([k, v]) => { d[k] = { label: HISTORY_LABELS[k], flats: v, maint: null }; });
+      Object.entries(HISTORY).forEach(([k, v]) => {
+        d[k] = { label: HISTORY_LABELS[k], flats: v, maint: null, isImported: true };
+      });
     }
-    waterClosed.forEach((c) => { if (c.key) d[c.key] = { ...(d[c.key] || { maint: null }), label: c.label, flats: c.flats }; });
-    maintClosed.forEach((c) => { if (c.key) d[c.key] = { ...(d[c.key] || { flats: {} }), label: c.label, maint: c.maint }; });
+    waterClosed.forEach((c) => {
+      if (c.key) d[c.key] = { ...(d[c.key] || { maint: null }), label: c.label, flats: c.flats, isImported: false };
+    });
+    maintClosed.forEach((c) => {
+      if (c.key) d[c.key] = { ...(d[c.key] || { flats: {} }), label: c.label, maint: c.maint, isImported: d[c.key]?.isImported || false };
+    });
     const keys = Object.keys(d).sort();
     const lab = {}; keys.forEach((k) => (lab[k] = d[k].label));
     return { months: keys, labels: lab, data: d };
@@ -57,7 +64,8 @@ export default function History({ flat, residential, pastWater = [], pastMaint =
     const rec = data[m]?.flats?.[F] || {};
     const total = Object.values(data[m]?.flats || {}).reduce((s, v) => s + (v.l || 0), 0);
     return { m, label: labels[m], litres: rec.l ?? null, amount: rec.a ?? null,
-      maint: data[m]?.maint ?? null, buildingLitres: total };
+      maint: data[m]?.maint ?? null, buildingLitres: total,
+      isImported: data[m]?.isImported || false };
   }), [months, data, labels, F]);
 
   // no history yet (no seed + no closed periods) — show a friendly empty state
@@ -101,6 +109,10 @@ export default function History({ flat, residential, pastWater = [], pastMaint =
   else if (cur.amount != null) { totalPaid = cur.amount; totalNote = "water only — maintenance not recorded"; }
   else if (cur.maint != null) { totalPaid = cur.maint; totalNote = "maintenance only"; }
 
+  // FIN-07: label imported historical amounts clearly
+  const amountNote = cur.isImported ? "historical recorded amount" : "share of tanker cost";
+  const maintNote = cur.isImported ? "historical recorded amount" : "your equal share";
+
   return (
     <>
       {canPickAny && (
@@ -132,9 +144,9 @@ export default function History({ flat, residential, pastWater = [], pastMaint =
         <Card label={`Water used · ${cur.label || ""}`} value={cur.litres != null ? `${(cur.litres / 1000).toFixed(1)} kL` : "—"}
           note={cur.litres != null ? `${Math.round(cur.litres).toLocaleString("en-IN")} litres` : "no reading"} tone="water" />
         <Card label="Water bill" value={cur.amount != null ? money(cur.amount) : "—"}
-          note={cur.amount != null ? "share of tanker cost" : "no data available for now"} tone="ink" />
+          note={cur.amount != null ? amountNote : "no data available for now"} tone="ink" />
         <Card label="Maintenance paid" value={cur.maint != null ? money(cur.maint) : "—"}
-          note={cur.maint != null ? "your equal share" : "no data available for now"} tone="ink" />
+          note={cur.maint != null ? maintNote : "no data available for now"} tone="ink" />
         <Card label="Total paid" value={totalPaid == null ? "—" : money(totalPaid)}
           note={totalNote} tone="money" />
         <Card label="Usage vs last month" value={dLast == null ? "—" : `${dLast >= 0 ? "▲" : "▼"} ${Math.abs(dLast).toFixed(0)}%`}
