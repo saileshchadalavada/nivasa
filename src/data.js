@@ -304,6 +304,17 @@ export function getPaymentsForFlat(payments, flat) {
   return (payments || []).filter((p) => p.flat === flat).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 
+
+/* Remove a member from the building (admin only).
+   Clears their flat claim, removes member doc, removes building from their account. */
+export async function removeMember(bid, uid, flat) {
+  const batch = writeBatch(db);
+  batch.delete(memberRef(bid, uid));
+  if (flat) batch.update(flatRef(bid, flat), { claimedByUid: null });
+  batch.update(userRef(uid), { buildings: arrayRemove(bid) });
+  await batch.commit();
+}
+
 /* Admin-only: delete an entire building — every subcollection doc, the config,
    and remove the building id from each member's account. */
 export async function deleteBuilding(bid) {
