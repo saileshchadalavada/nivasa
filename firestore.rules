@@ -3,6 +3,8 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function uid() { return request.auth.uid; }
+
+    // ── /users/{u} ── SEC-01: owner-only, schema-validated ──
     match /users/{u} {
       allow read: if signedIn() && uid() == u;
 
@@ -37,48 +39,92 @@ service cloud.firestore {
 
       allow delete: if false;
     }
+
+    // ── /buildings/{bid} ──
     match /buildings/{bid} {
       function cfg() { return get(/databases/$(database)/documents/buildings/$(bid)).data; }
       function hasCfg() { return exists(/databases/$(database)/documents/buildings/$(bid)); }
       function isMember() { return signedIn() && exists(/databases/$(database)/documents/buildings/$(bid)/members/$(uid())); }
       function myRoles() { return get(/databases/$(database)/documents/buildings/$(bid)/members/$(uid())).data.roles; }
       function isAdmin() { return signedIn() && hasCfg() && (uid() == cfg().adminUid || (isMember() && myRoles().hasAny(['admin']))); }
-      function canEditMonth() { return isAdmin() || (isMember() && myRoles().hasAny(['treasurer','water'])); }
+
+      // SEC-04: role-specific edit helpers (replaces canEditMonth)
+      function hasRole(role) { return isMember() && myRoles().hasAny([role]); }
+      function canEditWater() { return isAdmin() || hasRole('water'); }
+      function canEditMaint() { return isAdmin() || hasRole('treasurer'); }
+
       allow read: if true;
       allow create: if signedIn() && request.resource.data.adminUid == uid();
       allow update, delete: if isAdmin();
+
+      // ── members ──
       match /members/{m} {
         allow read: if isMember() || isAdmin();
         allow create: if (uid() == m && request.resource.data.roles.size() == 0) || isAdmin();
-        allow update: if isAdmin() || (uid() == m && request.resource.data.roles == resource.data.roles);
+        // DB-09: restrict self-update to safe fields only; roles are immutable by self
+        allow update: if isAdmin()
+          || (uid() == m
+              && request.resource.data.roles == resource.data.roles
+              && request.resource.data.flat == resource.data.flat
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['phone', 'residentType']));
         allow delete: if isAdmin();
       }
+
+      // ── flats ──
+      // SEC-06: restrict self-claim to approved fields; structural fields immutable
       match /flats/{flat} {
         allow read: if isMember();
         allow create: if isAdmin() || (signedIn() && !hasCfg());
         allow update: if isAdmin()
           || (isMember()
               && resource.data.claimedByUid == null
-              && request.resource.data.claimedByUid == uid());
+              && request.resource.data.claimedByUid == uid()
+              && request.resource.data.isCommon == false
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['claimedByUid', 'name', 'meter']));
         allow delete: if isAdmin();
       }
+
+      // ── water periods ── SEC-04: water role only
       match /waterPeriods/{p} {
         allow read: if isMember();
-        allow write: if canEditMonth() || (signedIn() && !hasCfg());
+        allow write: if canEditWater() || (signedIn() && !hasCfg());
       }
+
+      // ── maintenance periods ── SEC-04: treasurer role only
       match /maintPeriods/{p} {
         allow read: if isMember();
-        allow write: if canEditMonth() || (signedIn() && !hasCfg());
+        allow write: if canEditMaint() || (signedIn() && !hasCfg());
       }
+
+      // ── activities ── SEC-05: admin-only create/update/delete
       match /activities/{a} {
         allow read: if isMember();
         allow create: if isAdmin();
-        allow update: if isAdmin() || isMember();
+        // DB-09: restrict activity updates to admin (no broad member write)
+        allow update: if isAdmin();
         allow delete: if isAdmin();
+
+        // SEC-05 / FUNC-02: votes as subcollection, one doc per voter UID
+        match /votes/{voterUid} {
+          allow read: if isMember();
+          allow create, update: if signedIn()
+            && uid() == voterUid
+            && isMember()
+            && request.resource.data.keys().hasOnly(['optionIdx', 'flat', 'updatedAt'])
+            && request.resource.data.optionIdx is int
+            && request.resource.data.optionIdx >= 0
+            && request.resource.data.flat is string;
+          allow delete: if signedIn() && (uid() == voterUid || isAdmin());
+        }
       }
+
+      // ── cost presets ──
       match /costPresets/{p} {
         allow read: if isMember();
-        allow write: if canEditMonth();
+        // SEC-04: cost presets relate to water billing
+        allow write: if canEditWater();
       }
     }
   }

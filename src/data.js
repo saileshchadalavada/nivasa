@@ -25,6 +25,8 @@ const presetsCol = (bid) => collection(db, "buildings", bid, "costPresets");
 const activitiesCol = (bid) => collection(db, "buildings", bid, "activities");
 const activityRef = (bid, id) => doc(db, "buildings", bid, "activities", id);
 const presetRef = (bid, id) => doc(db, "buildings", bid, "costPresets", id);
+const votesCol = (bid, aid) => collection(db, "buildings", bid, "activities", aid, "votes");
+const voteRef = (bid, aid, uid) => doc(db, "buildings", bid, "activities", aid, "votes", uid);
 
 /* ---- account ---- */
 export const subscribeAccount = (uid, cb) =>
@@ -263,8 +265,20 @@ export async function createActivity(bid, activity) {
 export const updateActivity = (bid, id, patch) =>
   updateDoc(activityRef(bid, id), { ...patch, updatedAt: Date.now() });
 export const deleteActivity = (bid, id) => deleteDoc(activityRef(bid, id));
-export const voteOnPoll = (bid, id, flat, optionIdx) =>
-  updateDoc(activityRef(bid, id), { [`poll.votes.${flat}`]: optionIdx });
+/* SEC-05 / FUNC-02: votes stored as one document per voter UID in a subcollection.
+   Document ID = authenticated UID, so each person gets exactly one vote. */
+export const castVote = (bid, activityId, voterUid, optionIdx, flat) =>
+  setDoc(voteRef(bid, activityId, voterUid), { optionIdx, flat, updatedAt: Date.now() });
+
+export const subscribeActivityVotes = (bid, activityId, cb) =>
+  onSnapshot(query(votesCol(bid, activityId)), (snap) =>
+    cb(snap.docs.map((d) => ({ uid: d.id, ...d.data() }))));
+
+/* Legacy alias — remove after confirming no other callers */
+export const voteOnPoll = (bid, id, flat, optionIdx) => {
+  console.warn("voteOnPoll is deprecated — use castVote with UID");
+  return updateDoc(activityRef(bid, id), { [`poll.votes.${flat}`]: optionIdx });
+};
 
 
 /* ---- Per-flat payment tracking ---- */

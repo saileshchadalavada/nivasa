@@ -191,8 +191,8 @@ export default function App() {
   const selectWater = (id) => { if (waterDirty) { alert("Save or undo your water changes before switching periods."); return; } setSelWaterId(id); };
   const selectMaint = (id) => { if (maintDirty) { alert("Save or undo your maintenance changes before switching periods."); return; } setSelMaintId(id); };
 
-  const setMeter = (flat, meter) => { setFlatMeter(effectiveBid, flat, meter).catch(() => {}); };
-  const toggleAdj = () => { updateBuilding(effectiveBid, { showAdj: !config.showAdj }).catch(() => {}); };
+  const setMeter = (flat, meter) => { setFlatMeter(effectiveBid, flat, meter).catch((e) => console.error("Meter update failed:", e)); };
+  const toggleAdj = () => { updateBuilding(effectiveBid, { showAdj: !config.showAdj }).catch((e) => console.error("Toggle adjustment failed:", e)); };
   const backfillWater = async () => {
     if (waterDirty) { alert("Save or undo your changes first."); return; }
     setSaving(true);

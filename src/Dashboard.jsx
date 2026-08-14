@@ -182,7 +182,7 @@ export default function Dashboard({
   const doPublish = async (kind) => {
     const coll = kind === "water" ? "waterPeriods" : "maintPeriods";
     const id = kind === "water" ? waterMonth.id : maintMonth.id;
-    try { await publishPeriod(bid, coll, id, uid); } catch {}
+    try { await publishPeriod(bid, coll, id, uid); } catch (e) { console.error("Publish failed:", e); }
   };
   const snapshotText = (kind) => kind === "water"
     ? buildWaterSnapshot({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), startIso: waterStart, endIso: waterEnd, rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })

@@ -5,14 +5,18 @@ import { userToEmail } from "./seedData";
 import { getBuilding } from "./data";
 import { styles as S, T, css, display, mono, font } from "./styles";
 
-/* Account-level auth only. Enter username + PIN: existing accounts log in,
-   new ones are created. Building membership happens after login (Join / Create). */
+/* SEC-09: separate sign-in from account creation.
+   - Sign in: always attempted first.
+   - Create: only when the user explicitly chooses "Create account" AND has
+     a valid invite context (inviteBid). Network, disabled-user, and config
+     errors never fall through to account creation. */
 export default function Auth({ inviteBid }) {
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [bname, setBname] = useState("");
+  const [mode, setMode] = useState("signin"); // "signin" | "create"
 
   useEffect(() => {
     if (inviteBid) getBuilding(inviteBid).then((b) => b && setBname(b.name || "")).catch(() => {});
@@ -25,18 +29,53 @@ export default function Auth({ inviteBid }) {
     if (!/^\d{6}$/.test(pin)) return setErr("PIN must be 6 digits.");
     setBusy(true);
     const email = userToEmail(uname);
+
     try {
-      try {
+      if (mode === "signin") {
         await signInWithEmailAndPassword(auth, email, pin);
-      } catch {
-        await createUserWithEmailAndPassword(auth, email, pin);
+      } else {
+        // Create mode — only allowed with an invite context
+        if (!inviteBid) {
+          setErr("You need an invitation link to create a new account.");
+          setBusy(false);
+          return;
+        }
+        try {
+          await createUserWithEmailAndPassword(auth, email, pin);
+        } catch (ce) {
+          const code = ce?.code || "";
+          if (code === "auth/email-already-in-use") {
+            setErr("That username already exists. Switch to sign in and use your PIN.");
+          } else if (code === "auth/weak-password") {
+            setErr("PIN must be 6 digits.");
+          } else {
+            setErr("Could not create account. Please try again.");
+            console.error("Account creation error:", code);
+          }
+          setBusy(false);
+          return;
+        }
       }
     } catch (e) {
-      const c = e?.code || "";
-      if (c.includes("email-already-in-use")) setErr("Wrong PIN — that username already exists. Try again.");
-      else if (c.includes("weak-password")) setErr("PIN must be 6 digits.");
-      else if (c.includes("invalid-credential") || c.includes("wrong-password")) setErr("Wrong PIN. Try again.");
-      else setErr("Something went wrong. Try again.");
+      const code = e?.code || "";
+      if (code === "auth/user-not-found" || code === "auth/invalid-credential") {
+        if (inviteBid) {
+          setErr("Incorrect PIN, or this username doesn't exist yet. If you're new, tap \"Create account\" below.");
+        } else {
+          setErr("Incorrect username or PIN.");
+        }
+      } else if (code === "auth/wrong-password") {
+        setErr("Wrong PIN. Try again.");
+      } else if (code === "auth/user-disabled") {
+        setErr("This account has been disabled. Contact your building admin.");
+      } else if (code === "auth/too-many-requests") {
+        setErr("Too many attempts. Please wait a few minutes.");
+      } else if (code === "auth/network-request-failed") {
+        setErr("Network error. Check your connection and try again.");
+      } else {
+        setErr("Something went wrong. Please try again.");
+        console.error("Auth error:", code);
+      }
       setBusy(false);
     }
   };
@@ -51,7 +90,11 @@ export default function Auth({ inviteBid }) {
           ))}
         </div>
         <h1 style={L.title}>Nivasa</h1>
-        <p style={L.sub}>{bname ? `Sign in to join ${bname}` : "Sign in or create your account"}</p>
+        <p style={L.sub}>
+          {mode === "create"
+            ? (bname ? `Create account to join ${bname}` : "Create your account")
+            : (bname ? `Sign in to join ${bname}` : "Sign in to your account")}
+        </p>
 
         <label style={L.label}>Username</label>
         <input value={username} onChange={(e)=>setUsername(e.target.value)}
@@ -67,9 +110,20 @@ export default function Auth({ inviteBid }) {
 
         <button className="primaryBtn" onClick={go} disabled={busy}
           style={{...S.primaryBtn, width:"100%", marginTop:16, padding:"12px"}}>
-          {busy ? "Please wait…" : "Continue"}
+          {busy ? "Please wait…" : (mode === "create" ? "Create account" : "Sign in")}
         </button>
-        <p style={L.hint}>New username + PIN creates an account. Same again logs you in.</p>
+
+        <div style={L.switchRow}>
+          {mode === "signin" ? (
+            inviteBid ? (
+              <span>New here? <button style={L.linkBtn} onClick={() => { setMode("create"); setErr(""); }}>Create account</button></span>
+            ) : (
+              <span style={{ fontSize: 12, color: T.muted }}>Need an account? Ask your building admin for an invite link.</span>
+            )
+          ) : (
+            <span>Already have an account? <button style={L.linkBtn} onClick={() => { setMode("signin"); setErr(""); }}>Sign in</button></span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -82,6 +136,7 @@ const L = {
   sub: { fontSize:13.5, color: T.inkSoft, margin:"0 0 18px" },
   label: { display:"block", fontSize:12.5, fontWeight:600, color: T.ink, margin:"14px 0 6px" },
   input: { width:"100%", padding:"11px 12px", border:`1px solid ${T.line}`, borderRadius:10, fontSize:15, background:"#fff", color: T.ink, fontFamily: font },
-  err: { marginTop:12, background: T.owedSoft, color: T.owed, padding:"9px 12px", borderRadius:9, fontSize:13 },
-  hint: { fontSize:12, color: T.muted, textAlign:"center", marginTop:14, marginBottom:0 },
+  err: { marginTop:12, background: T.owedSoft || "#FEF2F2", color: T.owed || "#D94343", padding:"9px 12px", borderRadius:9, fontSize:13 },
+  switchRow: { textAlign: "center", marginTop: 14, fontSize: 13, color: T.inkSoft },
+  linkBtn: { background: "none", border: "none", color: T.water, fontWeight: 600, cursor: "pointer", fontFamily: font, fontSize: 13, padding: 0, textDecoration: "underline" },
 };

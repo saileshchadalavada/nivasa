@@ -1,21 +1,35 @@
-import React, { useState, useMemo } from "react";
-import { createActivity, updateActivity, deleteActivity, voteOnPoll } from "./data";
+import React, { useState, useMemo, useEffect } from "react";
+import { createActivity, updateActivity, deleteActivity, castVote, subscribeActivityVotes } from "./data";
 import { money, fmtDate } from "./util";
 import { styles as S, T, display, mono, font } from "./styles";
 
 const TYPES = { announcement: "📢", poll: "📊", meeting: "📅" };
 const TYPE_LABELS = { announcement: "Announcement", poll: "Poll", meeting: "Meeting" };
-const uid = () => "a_" + Math.random().toString(36).slice(2, 8);
 
 export default function Community({ bid, activities, membership, members, config, admin, mobile }) {
   const [creating, setCreating] = useState(null);  // null | "announcement" | "poll" | "meeting"
   const [editing, setEditing] = useState(null);     // activity id being edited
   const [expanded, setExpanded] = useState(null);   // activity id expanded
 
+  const myUid = membership?.uid || "";
   const myFlat = membership?.flat || "";
   const sorted = useMemo(() =>
     [...(activities || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
   [activities]);
+
+  // SEC-05 / FUNC-02: subscribe to vote subcollections for all polls
+  const pollIds = useMemo(() => sorted.filter((a) => a.type === "poll").map((a) => a.id), [sorted]);
+  const [votesMap, setVotesMap] = useState({}); // { activityId: [{ uid, optionIdx, flat }] }
+
+  useEffect(() => {
+    if (pollIds.length === 0) return;
+    const unsubs = pollIds.map((id) =>
+      subscribeActivityVotes(bid, id, (votes) =>
+        setVotesMap((prev) => ({ ...prev, [id]: votes }))
+      )
+    );
+    return () => unsubs.forEach((u) => u && u());
+  }, [bid, pollIds.join(",")]);
 
   return (
     <>
@@ -42,8 +56,9 @@ export default function Community({ bid, activities, membership, members, config
       )}
 
       {sorted.map((a) => (
-        <ActivityCard key={a.id} activity={a} bid={bid} myFlat={myFlat} admin={admin}
+        <ActivityCard key={a.id} activity={a} bid={bid} myUid={myUid} myFlat={myFlat} admin={admin}
           members={members} expanded={expanded === a.id} mobile={mobile}
+          votes={votesMap[a.id] || []}
           onToggle={() => setExpanded(expanded === a.id ? null : a.id)}
           onEdit={() => setEditing(a.id)} editing={editing === a.id}
           onEditDone={() => setEditing(null)} />
@@ -56,6 +71,7 @@ export default function Community({ bid, activities, membership, members, config
 function CreateForm({ type, bid, membership, onDone, onCancel }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [err, setErr] = useState("");
   // Poll fields
   const [options, setOptions] = useState(["", ""]);
   // Meeting fields
@@ -70,18 +86,42 @@ function CreateForm({ type, bid, membership, onDone, onCancel }) {
   const removeOption = (i) => options.length > 2 && setOptions(options.filter((_, idx) => idx !== i));
 
   const submit = async () => {
-    if (!title.trim()) return;
-    setBusy(true);
-    const base = { type, title: title.trim(), body: body.trim(), status: "published", createdBy: membership?.uid || "" };
+    setErr("");
+    if (!title.trim()) return setErr("Title is required.");
+
+    // FUNC-03: validate at least 2 unique non-blank poll options
     if (type === "poll") {
-      base.poll = { options: options.filter((o) => o.trim()).map((o) => o.trim()), votes: {} };
+      const validOptions = options.map((o) => o.trim()).filter(Boolean);
+      const uniqueOptions = [...new Set(validOptions)];
+      if (uniqueOptions.length < 2) {
+        return setErr("A poll needs at least 2 different options.");
+      }
     }
+
+    // FUNC-04: require a valid date for meetings
     if (type === "meeting") {
-      base.meeting = { date, time, location: location.trim(), agenda: agenda.trim(), mom: "" };
+      if (!date) return setErr("A meeting date is required.");
     }
-    await createActivity(bid, base);
-    setBusy(false);
-    onDone();
+
+    setBusy(true);
+    try {
+      const base = { type, title: title.trim(), body: body.trim(), status: "published", createdBy: membership?.uid || "" };
+      if (type === "poll") {
+        const uniqueOptions = [...new Set(options.map((o) => o.trim()).filter(Boolean))];
+        base.poll = { options: uniqueOptions };
+        // Note: votes are now stored in a subcollection, not on the activity doc
+      }
+      if (type === "meeting") {
+        base.meeting = { date, time, location: location.trim(), agenda: agenda.trim(), mom: "" };
+      }
+      await createActivity(bid, base);
+      onDone();
+    } catch (e) {
+      setErr("Could not publish. Please try again.");
+      console.error("createActivity failed:", e);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -123,7 +163,7 @@ function CreateForm({ type, bid, membership, onDone, onCancel }) {
       {type === "meeting" && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
-            <label style={C.label}>Date</label>
+            <label style={C.label}>Date *</label>
             <input type="date" style={C.input} value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
           <div>
@@ -142,6 +182,8 @@ function CreateForm({ type, bid, membership, onDone, onCancel }) {
         </div>
       )}
 
+      {err && <div style={C.err}>{err}</div>}
+
       <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
         <button style={C.ghostBtn} onClick={onCancel}>Cancel</button>
         <button className="primaryBtn" style={{ ...S.primaryBtn, flex: 1 }} onClick={submit} disabled={busy || !title.trim()}>
@@ -153,14 +195,17 @@ function CreateForm({ type, bid, membership, onDone, onCancel }) {
 }
 
 /* ---- Activity card ---- */
-function ActivityCard({ activity: a, bid, myFlat, admin, members, expanded, mobile, onToggle, onEdit, editing, onEditDone }) {
+function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expanded, mobile, votes, onToggle, onEdit, editing, onEditDone }) {
   const isPoll = a.type === "poll";
   const isMeeting = a.type === "meeting";
-  const totalVotes = isPoll ? Object.keys(a.poll?.votes || {}).length : 0;
-  const myVote = isPoll ? a.poll?.votes?.[myFlat] : undefined;
+
+  // SEC-05 / FUNC-02: votes come from subcollection, keyed by UID
+  const totalVotes = isPoll ? votes.length : 0;
+  const myVote = isPoll ? votes.find((v) => v.uid === myUid) : undefined;
   const ago = timeAgo(a.createdAt);
 
-  const appLink = `https://nivasa-myhomeapp.vercel.app?b=${bid}&tab=community`;
+  // BUILD-07: use current origin instead of hardcoded Vercel URL
+  const appLink = `${window.location.origin}${window.location.pathname}?b=${bid}&tab=community`;
 
   const shareText = () => {
     let msg = `${TYPES[a.type]} *${a.title}*\n`;
@@ -188,14 +233,19 @@ function ActivityCard({ activity: a, bid, myFlat, admin, members, expanded, mobi
     window.open(url, "_blank");
   };
 
+  // SEC-05 / FUNC-02: vote by UID, not flat
   const doVote = (idx) => {
-    if (!myFlat) return;
-    voteOnPoll(bid, a.id, myFlat, idx);
+    if (!myUid) return;
+    castVote(bid, a.id, myUid, idx, myFlat).catch((e) =>
+      console.error("Vote failed:", e)
+    );
   };
 
   const doDelete = () => {
     if (window.confirm(`Delete this ${TYPE_LABELS[a.type].toLowerCase()}? This cannot be undone.`)) {
-      deleteActivity(bid, a.id);
+      deleteActivity(bid, a.id).catch((e) =>
+        console.error("Delete activity failed:", e)
+      );
     }
   };
 
@@ -218,17 +268,17 @@ function ActivityCard({ activity: a, bid, myFlat, admin, members, expanded, mobi
         <div style={C.cardBody}>
           {a.body && <div style={C.bodyText}>{a.body}</div>}
 
-          {/* Poll */}
+          {/* Poll — SEC-05/FUNC-02: votes from subcollection */}
           {isPoll && (
             <div style={{ marginTop: 12 }}>
               {(a.poll?.options || []).map((opt, i) => {
-                const count = Object.values(a.poll?.votes || {}).filter((v) => v === i).length;
+                const count = votes.filter((v) => v.optionIdx === i).length;
                 const pct = totalVotes ? Math.round((count / totalVotes) * 100) : 0;
-                const isMyVote = myVote === i;
+                const isMyVote = myVote?.optionIdx === i;
                 return (
                   <div key={i} style={C.pollRow}>
-                    <button onClick={() => doVote(i)} disabled={!myFlat}
-                      style={{ ...C.pollBtn, ...(isMyVote ? C.pollBtnActive : {}), cursor: myFlat ? "pointer" : "default" }}>
+                    <button onClick={() => doVote(i)} disabled={!myUid}
+                      style={{ ...C.pollBtn, ...(isMyVote ? C.pollBtnActive : {}), cursor: myUid ? "pointer" : "default" }}>
                       <span style={{ flex: 1, textAlign: "left" }}>{opt}{isMyVote && " ✓"}</span>
                       <span style={{ fontFamily: mono, fontSize: 12 }}>{count} ({pct}%)</span>
                     </button>
@@ -239,15 +289,16 @@ function ActivityCard({ activity: a, bid, myFlat, admin, members, expanded, mobi
                 );
               })}
               <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>
-                {totalVotes} vote{totalVotes !== 1 ? "s" : ""}{myVote != null ? " · you voted" : myFlat ? " · tap an option to vote" : ""}
+                {totalVotes} vote{totalVotes !== 1 ? "s" : ""}{myVote != null ? " · you voted" : myUid ? " · tap an option to vote" : ""}
               </div>
               {admin && totalVotes > 0 && (
                 <details style={{ marginTop: 10, fontSize: 12.5, color: T.inkSoft }}>
                   <summary style={{ cursor: "pointer", fontWeight: 600 }}>Who voted what</summary>
                   <div style={{ marginTop: 6 }}>
-                    {Object.entries(a.poll?.votes || {}).map(([flat, idx]) => {
-                      const m = members.find((mm) => mm.flat === flat);
-                      return <div key={flat}>Flat {flat} ({m?.username || "?"}) → {a.poll.options[idx] || "?"}</div>;
+                    {votes.map((v) => {
+                      const m = members.find((mm) => mm.uid === v.uid);
+                      const flatLabel = v.flat || m?.flat || "?";
+                      return <div key={v.uid}>Flat {flatLabel} ({m?.username || "?"}) → {(a.poll?.options || [])[v.optionIdx] || "?"}</div>;
                     })}
                   </div>
                 </details>
@@ -298,9 +349,14 @@ function MomEditor({ bid, activityId, mom, onDone }) {
   const [saving, setSaving] = useState(false);
   const save = async () => {
     setSaving(true);
-    await updateActivity(bid, activityId, { "meeting.mom": text.trim() });
-    setSaving(false);
-    onDone();
+    try {
+      await updateActivity(bid, activityId, { "meeting.mom": text.trim() });
+      onDone();
+    } catch (e) {
+      console.error("Save MoM failed:", e);
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <div>
@@ -316,9 +372,12 @@ function MomEditor({ bid, activityId, mom, onDone }) {
   );
 }
 
+/* FUNC-05: handle both numeric ms and Firestore Timestamp objects */
 function timeAgo(ts) {
   if (!ts) return "";
-  const diff = Date.now() - ts;
+  const ms = typeof ts === "number" ? ts : (ts.toMillis ? ts.toMillis() : Number(ts));
+  if (isNaN(ms)) return "";
+  const diff = Date.now() - ms;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
@@ -326,7 +385,7 @@ function timeAgo(ts) {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(ts).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  return new Date(ms).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
 const C = {
@@ -336,6 +395,7 @@ const C = {
   formTitle: { fontFamily: display, fontWeight: 700, fontSize: 16 },
   label: { display: "block", fontSize: 12.5, fontWeight: 600, color: T.ink, margin: "10px 0 5px" },
   input: { width: "100%", padding: "10px 12px", border: `1px solid ${T.line}`, borderRadius: 9, fontSize: 14, background: "#fff", color: T.ink, fontFamily: font, marginBottom: 4 },
+  err: { marginTop: 10, background: T.owedSoft || "#FEF2F2", color: T.owed || "#D94343", padding: "9px 12px", borderRadius: 9, fontSize: 13 },
   closeBtn: { border: "none", background: "#F1F1F8", width: 28, height: 28, borderRadius: "50%", cursor: "pointer", fontSize: 12, color: T.inkSoft, flexShrink: 0 },
   ghostBtn: { background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", color: T.inkSoft, fontFamily: font },
   card: { background: "#fff", border: `1px solid ${T.line}`, borderRadius: 14, marginBottom: 10, overflow: "hidden" },
