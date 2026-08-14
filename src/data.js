@@ -55,6 +55,22 @@ export async function getBuilding(bid) {
   return s.exists() ? { id: bid, ...s.data() } : null;
 }
 
+/* SEC-03: one-time migration — create publicBuildings docs from existing buildings.
+   Safe to run multiple times (skips buildings that already have a public doc). */
+export async function migrateToPublicBuildings() {
+  const buildingsSnap = await getDocs(collection(db, "buildings"));
+  let created = 0, skipped = 0;
+  for (const bDoc of buildingsSnap.docs) {
+    const pubRef = doc(db, "publicBuildings", bDoc.id);
+    const pubSnap = await getDoc(pubRef);
+    if (pubSnap.exists()) { skipped++; continue; }
+    const data = bDoc.data();
+    await setDoc(pubRef, { name: data.name || "", city: data.city || "", state: data.state || "", type: data.type || "single" });
+    created++;
+  }
+  return { created, skipped };
+}
+
 /* SEC-03: read minimal building info without membership.
    Used by Join and Auth screens before the user is a member. */
 export async function getPublicBuilding(bid) {

@@ -1,5 +1,5 @@
 import React from "react";
-import { setMemberRoles, assignMemberFlat, updateMembership, removeMember } from "./data";
+import { setMemberRoles, assignMemberFlat, updateMembership, removeMember, migrateToPublicBuildings } from "./data";
 import { styles as S, T, font } from "./styles";
 
 /* Admin-only: grant/revoke per-building roles, override a member's flat.
@@ -170,6 +170,9 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
         </div>
       )}
 
+      {/* SEC-03: one-time migration button for public building data */}
+      <MigrateTool />
+
       {onDeleteBuilding && (
         <div style={M.danger}>
           <div>
@@ -193,6 +196,38 @@ function Check({ on, onClick }) {
   );
 }
 function SectionTitle({ children }) { return <h2 style={S.section}>{children}</h2>; }
+
+/* SEC-03: one-time migration — creates publicBuildings docs. Safe to run multiple times. */
+function MigrateTool() {
+  const [status, setStatus] = React.useState(null); // null | "running" | { created, skipped }
+  const run = async () => {
+    setStatus("running");
+    try {
+      const result = await migrateToPublicBuildings();
+      setStatus(result);
+    } catch (e) {
+      setStatus({ error: e?.message || "Migration failed" });
+      console.error("Migration failed:", e);
+    }
+  };
+  if (status && typeof status === "object" && !status.error && status.created === 0) return null; // already done, hide
+  return (
+    <div style={M.tool}>
+      <div>
+        <div style={M.toolTitle}>Migrate public building data</div>
+        <div style={M.toolText}>
+          {status === "running" ? "Running migration…"
+            : status?.error ? `Error: ${status.error}`
+            : status ? `Done — ${status.created} created, ${status.skipped} already existed.`
+            : "Creates a public listing (name, city, state) for each building. Required once for the privacy update. Safe to run multiple times."}
+        </div>
+      </div>
+      {status !== "running" && (!status || status.error) && (
+        <button style={M.toolBtn} onClick={run}>Run migration</button>
+      )}
+    </div>
+  );
+}
 
 const M = { badge: { marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: T.gold, background: "#F6EFD9",
   padding: "2px 6px", borderRadius: 5, textTransform: "uppercase", letterSpacing: ".04em" },
