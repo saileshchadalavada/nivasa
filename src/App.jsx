@@ -8,6 +8,7 @@ import {
   subscribeMaintPeriods, saveMaintPeriod, startNextMaintPeriod, deleteMaintPeriod, ensureMaintPeriod,
   subscribeActivities,
   deleteBuilding, setPaidFlag, backfillWater2026,
+  removeOwnBuildingReference,
 } from "./data";
 import { isAdmin } from "./seedData";
 import { labelFromStart } from "./util";
@@ -100,6 +101,26 @@ export default function App() {
     ];
     return () => unsubs.forEach((u) => u && u());
   }, [user, effectiveBid]);
+
+  /* SEC-01 self-heal: when the user's membership is gone (admin removed them)
+     or the building itself was deleted, clean the stale building ID from their
+     own account and redirect to the next available building or Landing. */
+  useEffect(() => {
+    if (!user || !effectiveBid) return;
+    const inaccessible = membership === null || config === null;
+    if (!inaccessible) return;
+
+    removeOwnBuildingReference(user.uid, effectiveBid)
+      .then(() => {
+        if (getStored() === effectiveBid) {
+          setStored("");
+        }
+        setActiveBid("");
+      })
+      .catch((error) => {
+        console.error("Could not clean building reference", error);
+      });
+  }, [user, effectiveBid, membership, config]);
 
   const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
   const sortedMaint = useMemo(() => newest(allMaint || []), [allMaint]);
@@ -233,7 +254,7 @@ export default function App() {
     const name = config?.name || "this building";
     if (!window.confirm(`Delete "${name}" and ALL its data — flats, members, and water & maintenance history?\n\nThis cannot be undone.`)) return;
     setSaving(true);
-    try { await deleteBuilding(effectiveBid); setStored(""); setActiveBid(""); }
+    try { await deleteBuilding(effectiveBid, user.uid); setStored(""); setActiveBid(""); }
     catch (e) { alert("Couldn't delete building: " + (e?.code || e?.message || "unknown error")); }
     finally { setSaving(false); }
   };
