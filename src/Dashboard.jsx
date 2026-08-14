@@ -781,7 +781,7 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
 
 /* ---- Corpus Fund section ---- */
 function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
-  const corpus = config?.corpus || {};
+  const corpus = config?.corpus || { monthly: 0, openingBalance: 0, ledger: [], monthlyCollected: 0 };
   const monthly = Number(corpus.monthly || 0);
   const opening = Number(corpus.openingBalance || 0);
   const ledger = corpus.ledger || [];
@@ -824,7 +824,7 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
           ) : (
             <div style={{ ...S.cardValue, color: T.water, fontSize: 22 }}>{money(monthly)}</div>
           )}
-          <div style={S.cardNote}>{monthly > 0 ? `${money(monthly)} \u00d7 ${nRes} = ${money(monthly * nRes)}/month` : "not collecting monthly corpus"}</div>
+          <div style={S.cardNote}>{monthly > 0 ? `${money(monthly)} × ${nRes} = ${money(monthly * nRes)}/month` : "not collecting monthly corpus"}</div>
         </div>
         <div style={S.card}>
           <div style={S.cardLabel}>Opening balance</div>
@@ -838,7 +838,7 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
           )}
           <div style={S.cardNote}>previously collected before app</div>
         </div>
-        <Card label="Total corpus balance" value={money(balance)} tone="money" note="opening + deposits + monthly \u2212 withdrawals" />
+        <Card label="Total corpus balance" value={money(balance)} tone="money" note="opening + deposits + monthly − withdrawals" />
       </div>
 
       {(ledger.length > 0 || canEdit) && (
@@ -849,14 +849,14 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
                 <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
                   background: e.type === "deposit" ? "#E8F6EE" : "#FCEAE4", borderRadius: 8, padding: "8px 12px" }}>
                   <div>
-                    <span style={{ fontWeight: 600, fontSize: 13.5 }}>{e.type === "deposit" ? "\u2197" : "\u2199"} {e.description}</span>
+                    <span style={{ fontWeight: 600, fontSize: 13.5 }}>{e.type === "deposit" ? "↗" : "↙"} {e.description}</span>
                     <span style={{ fontSize: 12, color: T.muted, marginLeft: 8 }}>{e.date || ""}</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 14, color: e.type === "deposit" ? T.money : T.owed }}>
-                      {e.type === "deposit" ? "+" : "\u2212"}{money(e.amount)}
+                      {e.type === "deposit" ? "+" : "−"}{money(e.amount)}
                     </span>
-                    {canEdit && <button className="del" style={S.del} onClick={() => removeEntry(e.id)}>\u2715</button>}
+                    {canEdit && <button className="del" style={S.del} onClick={() => removeEntry(e.id)}>✕</button>}
                   </div>
                 </div>
               ))}
@@ -865,7 +865,7 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
           {canEdit && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button className="add" style={S.addBtn} onClick={() => addEntry("deposit")}>+ One-time deposit</button>
-              <button className="add" style={{ ...S.addBtn, color: T.owed, borderColor: T.owed }} onClick={() => addEntry("withdrawal")}>\u2212 Withdrawal</button>
+              <button className="add" style={{ ...S.addBtn, color: T.owed, borderColor: T.owed }} onClick={() => addEntry("withdrawal")}>− Withdrawal</button>
             </div>
           )}
         </div>
