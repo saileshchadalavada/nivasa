@@ -1120,7 +1120,7 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
           ) : (
             <div style={{ ...S.cardValue, color: T.water, fontSize: 22 }}>{money(monthly)}</div>
           )}
-          <div style={S.cardNote}>{monthly > 0 ? `${money(monthly)} × ${nRes} flats = ${money(monthly * nRes)} collected/month` : "set an amount to collect monthly"}</div>
+          <div style={S.cardNote}>{monthly > 0 ? `${money(monthly)} per flat × ${nRes} flats = ${money(monthly * nRes)} collected/month` : "enter amount to start collecting"}</div>
         </div>
         <div style={S.card}>
           <div style={S.cardLabel}>Opening balance</div>
@@ -1134,10 +1134,10 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
           ) : (
             <div style={{ ...S.cardValue, color: T.money, fontSize: 22 }}>{money(opening)}</div>
           )}
-          <div style={S.cardNote}>balance before using this app</div>
+          <div style={S.cardNote}>before this app</div>
         </div>
-        <Card label="Current corpus balance" value={money(balance)} tone={balance >= 0 ? "money" : "owed"}
-          note={`${money(opening)} opening + ${money(depositsTotal)} deposits − ${money(withdrawalsTotal)} withdrawals`} />
+        <Card label="Total corpus" value={money(balance)} tone={balance >= 0 ? "money" : "owed"}
+          note={`${money(opening)} previous + ${money(depositsTotal)} deposits − ${money(withdrawalsTotal)} spent`} />
       </div>
 
       {ledger.length > 0 && (
