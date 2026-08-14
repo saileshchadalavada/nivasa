@@ -227,7 +227,7 @@ export default function Dashboard({
             <div onClick={() => setTab("home")} style={{ ...S.avatar, width: 34, height: 34, fontSize: 13, cursor: "pointer" }}>{initialsOf(myName)}</div>
           </div>
         </header>
-        <div style={MB.dangleBar}>
+        <div style={{ position: "relative" }}>
           <Dangle type={dangleType} />
         </div>
         </>
