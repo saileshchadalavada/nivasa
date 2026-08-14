@@ -63,7 +63,6 @@ export default function Dangle({ type = "nimbu" }) {
   const [angle, setAngle] = useState(0);
   const [coinFlipping, setCoinFlipping] = useState(false);
   const [coinResult, setCoinResult] = useState(null);
-  const [dragging, setDragging] = useState(false);
   const animRef = useRef(null);
   const physRef = useRef({ angle: 0, velocity: 0, running: false });
   const dragRef = useRef({ startX: 0, startY: 0, lastX: 0, lastT: 0 });
@@ -108,60 +107,61 @@ export default function Dangle({ type = "nimbu" }) {
     runPhysics();
   }, [type, runPhysics]);
 
-  // Touch drag handlers
-  const onTouchStart = useCallback((e) => {
-    e.preventDefault();
-    const t = e.touches[0];
-    dragRef.current = { startX: t.clientX, startY: t.clientY, lastX: t.clientX, lastT: Date.now() };
-    setDragging(true);
-    const p = physRef.current;
-    p.running = false; // stop physics while dragging
+  // Simplified touch/click — tap to flick, drag to pull and release
+  const isDragging = useRef(false);
+
+  const onPointerDown = useCallback((e) => {
+    isDragging.current = true;
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    dragRef.current = { startX: x, lastX: x, lastT: Date.now(), moved: false };
+    // Stop physics while touching
+    physRef.current.running = false;
     if (animRef.current) cancelAnimationFrame(animRef.current);
   }, []);
 
-  const onTouchMove = useCallback((e) => {
-    if (!dragging) return;
-    e.preventDefault();
-    const t = e.touches[0];
-    const dx = t.clientX - dragRef.current.startX;
-    // Convert pixel drag to angle (roughly)
+  const onPointerMove = useCallback((e) => {
+    if (!isDragging.current) return;
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    const dx = x - dragRef.current.startX;
+    if (Math.abs(dx) > 3) dragRef.current.moved = true;
     const newAngle = Math.max(-50, Math.min(50, dx * 0.5));
     physRef.current.angle = newAngle;
     setAngle(newAngle);
-    dragRef.current.lastX = t.clientX;
+    dragRef.current.lastX = x;
     dragRef.current.lastT = Date.now();
-  }, [dragging]);
+  }, []);
 
-  const onTouchEnd = useCallback((e) => {
-    if (!dragging) return;
-    e.preventDefault();
-    setDragging(false);
+  const onPointerUp = useCallback(() => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
     const d = dragRef.current;
-    const dt = Math.max(1, Date.now() - d.lastT);
-    const dx = d.lastX - d.startX;
-    // Calculate release velocity from drag speed
-    const velocity = Math.max(-15, Math.min(15, (dx / dt) * 8));
-    if (Math.abs(velocity) > 0.5) {
-      physRef.current.velocity = velocity;
-      playSound(type);
-      if (type === "coin") {
-        setCoinFlipping(true); setCoinResult(null);
-        setTimeout(() => { setCoinFlipping(false); setCoinResult(Math.random() < 0.5 ? "H" : "T"); }, 700);
-      }
-      runPhysics();
+    if (d.moved) {
+      // Was a drag — calculate release velocity
+      const dt = Math.max(10, Date.now() - d.lastT);
+      const dx = d.lastX - d.startX;
+      physRef.current.velocity = Math.max(-12, Math.min(12, (dx / dt) * 6));
     } else {
-      // Too slow — treat as tap
-      flick();
+      // Was a tap — random flick
+      physRef.current.velocity = (5 + Math.random() * 5) * (Math.random() < 0.5 ? 1 : -1);
     }
-  }, [dragging, type, runPhysics, flick]);
+    playSound(type);
+    if (type === "coin") {
+      setCoinFlipping(true); setCoinResult(null);
+      setTimeout(() => { setCoinFlipping(false); setCoinResult(Math.random() < 0.5 ? "H" : "T"); }, 700);
+    }
+    runPhysics();
+  }, [type, runPhysics]);
 
-  // Mouse click fallback (desktop)
-  const onClick = useCallback((e) => {
-    e.preventDefault();
-    flick();
-  }, [flick]);
-
-  useEffect(() => () => { if (animRef.current) cancelAnimationFrame(animRef.current); }, []);
+  // Safety: reset if stuck
+  useEffect(() => {
+    const safety = setInterval(() => {
+      const p = physRef.current;
+      if (!p.running && !isDragging.current && Math.abs(p.angle) > 1) {
+        p.angle = 0; p.velocity = 0; setAngle(0);
+      }
+    }, 4000);
+    return () => { clearInterval(safety); if (animRef.current) cancelAnimationFrame(animRef.current); };
+  }, []);
 
   // 3D rotation derived from swing angle
   const rotateY = angle * 0.6;  // subtle Y rotation for depth
@@ -175,10 +175,13 @@ export default function Dangle({ type = "nimbu" }) {
       zIndex: 25, pointerEvents: "none",
     }}>
       <div
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onClick={onClick}
+        onTouchStart={onPointerDown}
+        onTouchMove={onPointerMove}
+        onTouchEnd={onPointerUp}
+        onMouseDown={onPointerDown}
+        onMouseMove={onPointerMove}
+        onMouseUp={onPointerUp}
+        onMouseLeave={() => { if (isDragging.current) { isDragging.current = false; flick(); } }}
         style={{
           transformOrigin: "top center",
           transform: `rotateZ(${rotateZ}deg) rotateY(${rotateY}deg) scale(${scale})`,
@@ -186,7 +189,7 @@ export default function Dangle({ type = "nimbu" }) {
           pointerEvents: "auto", cursor: "grab",
           WebkitTapHighlightColor: "transparent", userSelect: "none",
           perspective: "400px",
-          transition: dragging ? "none" : undefined,
+          transition: isDragging.current ? "none" : undefined,
         }}
       >
         {/* String with knot */}
