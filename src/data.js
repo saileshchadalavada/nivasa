@@ -171,12 +171,12 @@ export async function startNextMaintPeriod(bid, current) {
   const [bldSnap, flatsSnap] = await Promise.all([getDoc(bldRef(bid)), getDocs(flatsCol(bid))]);
   const bldData = bldSnap.exists() ? bldSnap.data() : {};
   const nFlats = flatsSnap.docs.filter((d) => !d.data().isCommon).length || 1;
-
-  const surplus = charge != null ? (charge * nFlats - total) + prevCarry : prevCarry;
-
-  // Auto-deposit monthly corpus when closing a period
   const corpus = bldData.corpus || {};
   const corpusMonthly = Number(corpus.monthly || 0);
+
+  const surplus = charge != null ? (charge * nFlats - total - corpusMonthly * nFlats) + prevCarry : prevCarry;
+
+  // Auto-deposit monthly corpus when closing a period
   if (corpusMonthly > 0) {
     const closingLabel = current.periodStart ? new Date(current.periodStart + "T00:00:00").toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : "period";
     const deposit = {

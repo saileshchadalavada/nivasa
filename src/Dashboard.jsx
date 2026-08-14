@@ -125,9 +125,10 @@ export default function Dashboard({
     const calculated = nRes ? total / nRes : 0;
     const charge = (M && M.chargePerFlat != null && M.chargePerFlat !== "") ? Number(M.chargePerFlat) : null;
     const perFlat = charge != null ? charge : calculated;
-    const surplus = charge != null ? (charge - calculated) * nRes : 0;
-    const carryForward = Number((M && M.carryForward) || 0);
     const corpusMonthly = Number((M && config?.corpus?.monthly) || 0);
+    // Surplus = collected - expenses - corpus. Only the maintenance portion carries forward.
+    const surplus = charge != null ? (charge - calculated - corpusMonthly) * nRes : 0;
+    const carryForward = Number((M && M.carryForward) || 0);
     return { total, perFlat, calculated, charge, surplus, carryForward, byMember, corpusMonthly };
   };
 
@@ -784,10 +785,12 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
         </div>
         <Card label="Owed to members" value={money(Object.values(maint.byMember).reduce((s, n) => s + n, 0))} tone="owed" note="adhoc expenses fronted" />
         {maint.surplus !== 0 && (
-          <Card label={maint.surplus > 0 ? "Surplus this period" : "Deficit this period"}
+          <Card label={maint.surplus > 0 ? "Maintenance surplus" : "Maintenance deficit"}
             value={money(Math.abs(maint.surplus))}
             tone={maint.surplus > 0 ? "money" : "owed"}
-            note={maint.surplus > 0 ? `collecting ₹${Math.round(maint.perFlat - maint.calculated)} extra per flat` : `collecting ₹${Math.round(maint.calculated - maint.perFlat)} less per flat`} />
+            note={maint.corpusMonthly > 0
+              ? `₹${Math.round(maint.perFlat)} collected − ₹${Math.round(maint.calculated)} expenses − ₹${maint.corpusMonthly} corpus = ₹${Math.round(maint.perFlat - maint.calculated - maint.corpusMonthly)}/flat`
+              : (maint.surplus > 0 ? `₹${Math.round(maint.perFlat - maint.calculated)} extra per flat` : `₹${Math.round(maint.calculated - maint.perFlat)} less per flat`)} />
         )}
         <div style={S.card}>
           <div style={S.cardLabel}>{(() => {
