@@ -1,8 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 
 /* Interactive dangle charm — hangs from top-right of mobile header.
-   Touch-drag to pull, release to swing with pendulum physics.
-   Coin mode does a 3D flip showing heads/tails. */
+   Touch-drag to pull and release, or tap to flick.
+   Real pendulum physics with 3D rotation effect. */
 
 const DANGLES = [
   { id: "nimbu", label: "Nimbu Mirchi", emoji: "🍋" },
@@ -17,12 +17,10 @@ const LS_KEY = "nivasa_dangle";
 export function getSavedDangle() { try { return localStorage.getItem(LS_KEY) || "nimbu"; } catch { return "nimbu"; } }
 export function saveDangle(id) { try { localStorage.setItem(LS_KEY, id); } catch {} }
 
-/* Sound effects via Web Audio */
 function playSound(type) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (type === "coin") {
-      // Metallic coin flip: two quick rising tones
       [0, 60, 120, 200, 300].forEach((delay, i) => {
         setTimeout(() => {
           const o = ctx.createOscillator(); const g = ctx.createGain();
@@ -33,7 +31,6 @@ function playSound(type) {
           o.start(); o.stop(ctx.currentTime + 0.06);
         }, delay);
       });
-      // Landing thud
       setTimeout(() => {
         const o = ctx.createOscillator(); const g = ctx.createGain();
         o.connect(g); g.connect(ctx.destination);
@@ -43,19 +40,21 @@ function playSound(type) {
         o.start(); o.stop(ctx.currentTime + 0.15);
       }, 500);
     } else if (type === "bell") {
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.frequency.value = 1200; o.type = "sine";
-      g.gain.setValueAtTime(0.2, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
-      o.start(); o.stop(ctx.currentTime + 0.8);
+      [800, 1200, 1600].forEach((freq, i) => {
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = freq; o.type = "sine";
+        g.gain.setValueAtTime(0.15 - i * 0.04, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+        o.start(); o.stop(ctx.currentTime + 0.8);
+      });
     } else {
       const o = ctx.createOscillator(); const g = ctx.createGain();
       o.connect(g); g.connect(ctx.destination);
-      o.frequency.value = 400 + Math.random() * 200; o.type = "triangle";
+      o.frequency.value = 350 + Math.random() * 150; o.type = "triangle";
       g.gain.setValueAtTime(0.06, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
-      o.start(); o.stop(ctx.currentTime + 0.1);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+      o.start(); o.stop(ctx.currentTime + 0.12);
     }
   } catch {}
 }
@@ -64,153 +63,157 @@ export default function Dangle({ type = "nimbu" }) {
   const [angle, setAngle] = useState(0);
   const [coinFlipping, setCoinFlipping] = useState(false);
   const [coinResult, setCoinResult] = useState(null);
+  const [dragging, setDragging] = useState(false);
   const animRef = useRef(null);
-  const physicsRef = useRef({ angle: 0, velocity: 0, running: false });
+  const physRef = useRef({ angle: 0, velocity: 0, running: false });
+  const dragRef = useRef({ startX: 0, startY: 0, lastX: 0, lastT: 0 });
+  const containerRef = useRef(null);
 
-  // Pendulum physics loop
-  const startSwing = useCallback((initialVelocity) => {
-    const p = physicsRef.current;
-    p.velocity = initialVelocity || (8 + Math.random() * 6);
+  const STRING_LEN = 32;
+  const CHARM_SIZE = 38;
+
+  // Physics step
+  const runPhysics = useCallback(() => {
+    const p = physRef.current;
     p.running = true;
-    playSound(type);
-
-    if (type === "coin") {
-      setCoinFlipping(true);
-      setCoinResult(null);
-      setTimeout(() => {
-        setCoinFlipping(false);
-        setCoinResult(Math.random() < 0.5 ? "H" : "T");
-      }, 700);
-    }
-
     const step = () => {
       if (!p.running) return;
-      // Damped pendulum: gravity restoring force + friction
-      const gravity = -0.003 * Math.sin(p.angle * Math.PI / 180);
+      const gravity = -0.0025 * Math.sin(p.angle * Math.PI / 180);
       p.velocity += gravity * 60;
-      p.velocity *= 0.97; // damping
+      p.velocity *= 0.975; // damping
       p.angle += p.velocity;
-
-      if (Math.abs(p.velocity) < 0.05 && Math.abs(p.angle) < 0.5) {
+      if (Math.abs(p.velocity) < 0.03 && Math.abs(p.angle) < 0.3) {
         p.angle = 0; p.velocity = 0; p.running = false;
         setAngle(0);
         return;
       }
+      // Clamp to reasonable range
+      p.angle = Math.max(-60, Math.min(60, p.angle));
       setAngle(p.angle);
       animRef.current = requestAnimationFrame(step);
     };
     if (animRef.current) cancelAnimationFrame(animRef.current);
     animRef.current = requestAnimationFrame(step);
-  }, [type]);
+  }, []);
+
+  // Tap to flick
+  const flick = useCallback((velocity) => {
+    const p = physRef.current;
+    p.velocity = velocity || (6 + Math.random() * 5) * (Math.random() < 0.5 ? 1 : -1);
+    playSound(type);
+    if (type === "coin") {
+      setCoinFlipping(true); setCoinResult(null);
+      setTimeout(() => { setCoinFlipping(false); setCoinResult(Math.random() < 0.5 ? "H" : "T"); }, 700);
+    }
+    runPhysics();
+  }, [type, runPhysics]);
+
+  // Touch drag handlers
+  const onTouchStart = useCallback((e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    dragRef.current = { startX: t.clientX, startY: t.clientY, lastX: t.clientX, lastT: Date.now() };
+    setDragging(true);
+    const p = physRef.current;
+    p.running = false; // stop physics while dragging
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+  }, []);
+
+  const onTouchMove = useCallback((e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const dx = t.clientX - dragRef.current.startX;
+    // Convert pixel drag to angle (roughly)
+    const newAngle = Math.max(-50, Math.min(50, dx * 0.5));
+    physRef.current.angle = newAngle;
+    setAngle(newAngle);
+    dragRef.current.lastX = t.clientX;
+    dragRef.current.lastT = Date.now();
+  }, [dragging]);
+
+  const onTouchEnd = useCallback((e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    setDragging(false);
+    const d = dragRef.current;
+    const dt = Math.max(1, Date.now() - d.lastT);
+    const dx = d.lastX - d.startX;
+    // Calculate release velocity from drag speed
+    const velocity = Math.max(-15, Math.min(15, (dx / dt) * 8));
+    if (Math.abs(velocity) > 0.5) {
+      physRef.current.velocity = velocity;
+      playSound(type);
+      if (type === "coin") {
+        setCoinFlipping(true); setCoinResult(null);
+        setTimeout(() => { setCoinFlipping(false); setCoinResult(Math.random() < 0.5 ? "H" : "T"); }, 700);
+      }
+      runPhysics();
+    } else {
+      // Too slow — treat as tap
+      flick();
+    }
+  }, [dragging, type, runPhysics, flick]);
+
+  // Mouse click fallback (desktop)
+  const onClick = useCallback((e) => {
+    e.preventDefault();
+    flick();
+  }, [flick]);
 
   useEffect(() => () => { if (animRef.current) cancelAnimationFrame(animRef.current); }, []);
 
-  const handleInteraction = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    startSwing();
-  };
-
-  const STRING_LEN = 30;
-  const CHARM_SIZE = 36;
+  // 3D rotation derived from swing angle
+  const rotateY = angle * 0.6;  // subtle Y rotation for depth
+  const rotateZ = angle;        // main swing
+  const scale = 1 + Math.abs(angle) * 0.002; // tiny scale for "closer" feel
 
   return (
-    <div style={{
-      position: "absolute", top: 0, right: 20,
-      width: 50, height: STRING_LEN + CHARM_SIZE + 20,
+    <div ref={containerRef} style={{
+      position: "absolute", top: 0, right: 16,
+      width: 54, height: STRING_LEN + CHARM_SIZE + 30,
       zIndex: 25, pointerEvents: "none",
     }}>
       <div
-        onClick={handleInteraction}
-        onTouchStart={handleInteraction}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onClick={onClick}
         style={{
           transformOrigin: "top center",
-          transform: `rotate(${angle}deg)`,
+          transform: `rotateZ(${rotateZ}deg) rotateY(${rotateY}deg) scale(${scale})`,
           display: "flex", flexDirection: "column", alignItems: "center",
-          pointerEvents: "auto", cursor: "pointer",
+          pointerEvents: "auto", cursor: "grab",
           WebkitTapHighlightColor: "transparent", userSelect: "none",
+          perspective: "400px",
+          transition: dragging ? "none" : undefined,
         }}
       >
-        {/* String */}
-        <div style={{ width: 2, height: STRING_LEN, background: "linear-gradient(to bottom, rgba(150,150,150,.6), rgba(120,120,120,.8))", borderRadius: 1 }} />
+        {/* String with knot */}
+        <svg width="6" height={STRING_LEN} style={{ overflow: "visible" }}>
+          <line x1="3" y1="0" x2="3" y2={STRING_LEN} stroke="#9a8c6c" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="3" cy={STRING_LEN - 1} r="2.5" fill="#b8860b" stroke="#8a6914" strokeWidth="0.8" />
+        </svg>
 
-        {/* Charm */}
+        {/* Charm with shadow */}
         <div style={{
-          width: CHARM_SIZE, height: CHARM_SIZE, display: "flex", alignItems: "center", justifyContent: "center",
-          filter: physicsRef.current.running ? "drop-shadow(0 3px 6px rgba(0,0,0,.25))" : "drop-shadow(0 1px 3px rgba(0,0,0,.15))",
-          transition: "filter 0.3s",
-          ...(type === "coin" && coinFlipping ? { animation: "coinFlip 0.7s ease-out" } : {}),
+          filter: `drop-shadow(${angle * 0.15}px ${3 + Math.abs(angle) * 0.05}px ${4 + Math.abs(angle) * 0.1}px rgba(0,0,0,.25))`,
+          ...(type === "coin" && coinFlipping ? { animation: "coinFlip3D 0.7s ease-out" } : {}),
+          ...(type === "spinner" && physRef.current.running ? { animation: "spinSpin 0.4s linear infinite" } : {}),
         }}>
-          {type === "nimbu" && (
-            <svg width="34" height="42" viewBox="0 0 34 42">
-              <path d="M10 4 Q6 12 8 22 Q10 26 12 22 Q14 14 12 6 Z" fill="#e53e3e" />
-              <path d="M10 3 Q10 0 12 2" stroke="#2d6a2d" strokeWidth="1.5" fill="none" />
-              <path d="M16 2 Q20 10 18 20 Q16 24 14 20 Q12 12 14 4 Z" fill="#c53030" />
-              <path d="M16 1 Q16 -2 14 1" stroke="#2d6a2d" strokeWidth="1.5" fill="none" />
-              <path d="M22 6 Q26 14 24 24 Q22 28 20 24 Q18 16 20 8 Z" fill="#e53e3e" />
-              <path d="M22 5 Q22 2 20 4" stroke="#2d6a2d" strokeWidth="1.5" fill="none" />
-              <ellipse cx="17" cy="34" rx="10" ry="8" fill="#ecc94b" />
-              <ellipse cx="17" cy="34" rx="7.5" ry="6" fill="#f6e05e" />
-              <ellipse cx="17" cy="40" rx="3" ry="2.5" fill="#d69e2e" />
-            </svg>
-          )}
-          {type === "coin" && (
-            <svg width="36" height="36" viewBox="0 0 36 36">
-              <defs>
-                <radialGradient id="coinGrad"><stop offset="0%" stopColor="#f0d060" /><stop offset="100%" stopColor="#c5941a" /></radialGradient>
-              </defs>
-              <circle cx="18" cy="18" r="16" fill="url(#coinGrad)" stroke="#a07810" strokeWidth="2" />
-              <circle cx="18" cy="18" r="13" fill="none" stroke="#d4a830" strokeWidth="0.8" />
-              <circle cx="18" cy="18" r="10" fill="none" stroke="#d4a830" strokeWidth="0.5" />
-              <text x="18" y="23" textAnchor="middle" fontSize="16" fontWeight="bold" fill="#7a5a0a" fontFamily="serif">
-                {coinResult || "₹"}
-              </text>
-            </svg>
-          )}
-          {type === "cricket" && (
-            <svg width="32" height="32" viewBox="0 0 32 32">
-              <circle cx="16" cy="16" r="14" fill="#cc2222" stroke="#991111" strokeWidth="1.5" />
-              <path d="M8 8 Q16 16 8 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
-              <path d="M24 8 Q16 16 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
-              {/* Stitch marks */}
-              {[10,13,16,19,22].map((y) => <React.Fragment key={y}>
-                <line x1="6" y1={y} x2="9" y2={y-1} stroke="#fff" strokeWidth="0.8" />
-                <line x1="23" y1={y-1} x2="26" y2={y} stroke="#fff" strokeWidth="0.8" />
-              </React.Fragment>)}
-            </svg>
-          )}
-          {type === "bell" && (
-            <svg width="30" height="38" viewBox="0 0 30 38">
-              <defs>
-                <linearGradient id="bellGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#f0d060" /><stop offset="100%" stopColor="#b8860b" /></linearGradient>
-              </defs>
-              <circle cx="15" cy="4" r="3.5" fill="url(#bellGrad)" stroke="#a07810" strokeWidth="0.8" />
-              <path d="M5 26 Q5 8 15 6 Q25 8 25 26 Z" fill="url(#bellGrad)" stroke="#a07810" strokeWidth="0.8" />
-              <ellipse cx="15" cy="26" rx="11" ry="3.5" fill="#c5941a" stroke="#a07810" strokeWidth="0.8" />
-              <line x1="15" y1="22" x2="15" y2="34" stroke="#8B6914" strokeWidth="2.5" />
-              <circle cx="15" cy="35" r="3.5" fill="#8B6914" />
-            </svg>
-          )}
-          {type === "spinner" && (
-            <svg width="34" height="34" viewBox="0 0 34 34" style={physicsRef.current.running ? { animation: "spinnerSpin 0.5s linear infinite" } : {}}>
-              {[0, 60, 120, 180, 240, 300].map((a, i) => (
-                <path key={i}
-                  d={`M17 17 L${17 + 14 * Math.cos(((a - 30) * Math.PI) / 180)} ${17 + 14 * Math.sin(((a - 30) * Math.PI) / 180)} A14 14 0 0 1 ${17 + 14 * Math.cos(((a + 30) * Math.PI) / 180)} ${17 + 14 * Math.sin(((a + 30) * Math.PI) / 180)} Z`}
-                  fill={["#e53e3e", "#ecc94b", "#38a169", "#4299e1", "#9f7aea", "#ed8936"][i]} />
-              ))}
-              <circle cx="17" cy="17" r="5" fill="#fff" stroke="#e2e8f0" strokeWidth="1" />
-              <circle cx="17" cy="17" r="2.5" fill="#4a5568" />
-            </svg>
-          )}
+          {type === "nimbu" && <NimbuMirchi />}
+          {type === "coin" && <Coin result={coinResult} />}
+          {type === "cricket" && <CricketBall />}
+          {type === "bell" && <Bell />}
+          {type === "spinner" && <Spinner />}
         </div>
 
-        {/* Coin result label */}
         {type === "coin" && coinResult && !coinFlipping && (
           <div style={{
             marginTop: 4, fontSize: 11, fontWeight: 700,
-            color: "#fff", background: coinResult === "H" ? "#d4a017" : "#6366f1",
+            color: "#fff", background: coinResult === "H" ? "#c5941a" : "#5b5fc7",
             padding: "2px 10px", borderRadius: 10, whiteSpace: "nowrap",
-            boxShadow: "0 2px 6px rgba(0,0,0,.2)",
+            boxShadow: "0 2px 8px rgba(0,0,0,.2)", letterSpacing: ".02em",
           }}>
             {coinResult === "H" ? "Heads!" : "Tails!"}
           </div>
@@ -218,15 +221,126 @@ export default function Dangle({ type = "nimbu" }) {
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes coinFlip {
-          0% { transform: perspective(200px) rotateY(0deg); }
-          100% { transform: perspective(200px) rotateY(1080deg); }
+        @keyframes coinFlip3D {
+          0% { transform: perspective(300px) rotateY(0deg) scale(1); }
+          30% { transform: perspective(300px) rotateY(540deg) scale(1.1); }
+          60% { transform: perspective(300px) rotateY(900deg) scale(1.05); }
+          100% { transform: perspective(300px) rotateY(1080deg) scale(1); }
         }
-        @keyframes spinnerSpin {
+        @keyframes spinSpin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
       `}} />
     </div>
+  );
+}
+
+/* ---- Individual charm SVGs ---- */
+function NimbuMirchi() {
+  return (
+    <svg width="36" height="46" viewBox="0 0 36 46">
+      {/* 3 chillies */}
+      <path d="M11 2 Q6 12 9 24 Q11 28 13 24 Q16 14 13 4 Z" fill="#e53e3e" />
+      <path d="M11 1 Q11 -2 13 1" stroke="#276727" strokeWidth="1.8" fill="none" />
+      <path d="M18 0 Q22 10 20 22 Q18 26 16 22 Q14 12 16 2 Z" fill="#c53030" />
+      <path d="M18 -1 Q18 -4 16 -1" stroke="#276727" strokeWidth="1.8" fill="none" />
+      <path d="M25 3 Q29 13 27 25 Q25 29 23 25 Q21 15 23 5 Z" fill="#e53e3e" />
+      <path d="M25 2 Q25 -1 23 2" stroke="#276727" strokeWidth="1.8" fill="none" />
+      {/* Lemon with highlight */}
+      <ellipse cx="18" cy="36" rx="11" ry="9" fill="#ecc94b" />
+      <ellipse cx="18" cy="36" rx="8" ry="6.5" fill="#f6e05e" />
+      <ellipse cx="15" cy="33" rx="3" ry="2" fill="rgba(255,255,255,.3)" transform="rotate(-20 15 33)" />
+      <ellipse cx="18" cy="43" rx="3" ry="2.5" fill="#d69e2e" />
+    </svg>
+  );
+}
+
+function Coin({ result }) {
+  return (
+    <svg width="38" height="38" viewBox="0 0 38 38">
+      <defs>
+        <radialGradient id="cg" cx="40%" cy="35%">
+          <stop offset="0%" stopColor="#ffe88a" />
+          <stop offset="50%" stopColor="#d4a017" />
+          <stop offset="100%" stopColor="#a07810" />
+        </radialGradient>
+      </defs>
+      {/* Coin edge (3D depth) */}
+      <ellipse cx="19" cy="21" rx="16" ry="16" fill="#8a6a10" />
+      <circle cx="19" cy="19" r="16" fill="url(#cg)" stroke="#8a6a10" strokeWidth="1.5" />
+      <circle cx="19" cy="19" r="13.5" fill="none" stroke="rgba(255,255,255,.25)" strokeWidth="0.8" />
+      <circle cx="19" cy="19" r="11" fill="none" stroke="rgba(255,255,255,.15)" strokeWidth="0.5" />
+      {/* Ashoka Chakra style center */}
+      <circle cx="19" cy="18" r="5" fill="none" stroke="#8a6a10" strokeWidth="0.8" />
+      <text x="19" y="23" textAnchor="middle" fontSize="14" fontWeight="bold" fill="#7a5a0a" fontFamily="serif">
+        {result || "₹"}
+      </text>
+      {/* Highlight */}
+      <ellipse cx="14" cy="13" rx="5" ry="3.5" fill="rgba(255,255,255,.2)" transform="rotate(-30 14 13)" />
+    </svg>
+  );
+}
+
+function CricketBall() {
+  return (
+    <svg width="34" height="34" viewBox="0 0 34 34">
+      <defs>
+        <radialGradient id="bg" cx="35%" cy="30%">
+          <stop offset="0%" stopColor="#e84040" />
+          <stop offset="100%" stopColor="#991111" />
+        </radialGradient>
+      </defs>
+      <circle cx="17" cy="17" r="15" fill="url(#bg)" stroke="#881010" strokeWidth="1" />
+      {/* Seam */}
+      <path d="M8 7 Q17 17 8 27" fill="none" stroke="#ffe" strokeWidth="2" strokeLinecap="round" />
+      <path d="M26 7 Q17 17 26 27" fill="none" stroke="#ffe" strokeWidth="2" strokeLinecap="round" />
+      {/* Stitch marks */}
+      {[9,12,15,18,21,24].map((y) => <React.Fragment key={y}>
+        <line x1="5" y1={y} x2="8.5" y2={y-1.5} stroke="#ffe" strokeWidth="0.7" />
+        <line x1="25.5" y1={y-1.5} x2="29" y2={y} stroke="#ffe" strokeWidth="0.7" />
+      </React.Fragment>)}
+      {/* Highlight */}
+      <ellipse cx="12" cy="10" rx="4" ry="3" fill="rgba(255,255,255,.15)" transform="rotate(-30 12 10)" />
+    </svg>
+  );
+}
+
+function Bell() {
+  return (
+    <svg width="32" height="42" viewBox="0 0 32 42">
+      <defs>
+        <linearGradient id="blg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#ffe88a" />
+          <stop offset="50%" stopColor="#d4a017" />
+          <stop offset="100%" stopColor="#a07810" />
+        </linearGradient>
+      </defs>
+      <circle cx="16" cy="4" r="3.5" fill="url(#blg)" stroke="#8a6a10" strokeWidth="0.8" />
+      <path d="M5 28 Q5 8 16 6 Q27 8 27 28 Z" fill="url(#blg)" stroke="#8a6a10" strokeWidth="0.8" />
+      <ellipse cx="16" cy="28" rx="12" ry="3.5" fill="#c5941a" stroke="#8a6a10" strokeWidth="0.8" />
+      <line x1="16" y1="24" x2="16" y2="36" stroke="#7a5a0a" strokeWidth="2.5" />
+      <circle cx="16" cy="37" r="3.5" fill="#8a6a10" />
+      {/* Highlight */}
+      <ellipse cx="11" cy="14" rx="3" ry="5" fill="rgba(255,255,255,.15)" transform="rotate(-15 11 14)" />
+    </svg>
+  );
+}
+
+function Spinner() {
+  const colors = ["#e53e3e", "#ecc94b", "#38a169", "#4299e1", "#9f7aea", "#ed8936"];
+  return (
+    <svg width="36" height="36" viewBox="0 0 36 36">
+      {colors.map((c, i) => {
+        const a1 = i * 60 - 30, a2 = i * 60 + 30;
+        return <path key={i}
+          d={`M18 18 L${18 + 15 * Math.cos((a1 * Math.PI) / 180)} ${18 + 15 * Math.sin((a1 * Math.PI) / 180)} A15 15 0 0 1 ${18 + 15 * Math.cos((a2 * Math.PI) / 180)} ${18 + 15 * Math.sin((a2 * Math.PI) / 180)} Z`}
+          fill={c} stroke="rgba(0,0,0,.1)" strokeWidth="0.5" />;
+      })}
+      <circle cx="18" cy="18" r="5.5" fill="#fff" stroke="#e2e8f0" strokeWidth="1" />
+      <circle cx="18" cy="18" r="2.5" fill="#4a5568" />
+      {/* Highlight */}
+      <ellipse cx="13" cy="11" rx="4" ry="3" fill="rgba(255,255,255,.12)" transform="rotate(-30 13 11)" />
+    </svg>
   );
 }
