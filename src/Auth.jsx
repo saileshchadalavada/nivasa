@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from "./firebase";
 import { userToEmail } from "./seedData";
-import { getBuilding } from "./data";
+import { getPublicBuilding } from "./data";
 import { styles as S, T, css, display, mono, font } from "./styles";
 
 /* SEC-09: separate sign-in from account creation.
@@ -19,7 +19,7 @@ export default function Auth({ inviteBid }) {
   const [mode, setMode] = useState("signin"); // "signin" | "create"
 
   useEffect(() => {
-    if (inviteBid) getBuilding(inviteBid).then((b) => b && setBname(b.name || "")).catch(() => {});
+    if (inviteBid) getPublicBuilding(inviteBid).then((b) => b && setBname(b.name || "")).catch(() => {});
   }, [inviteBid]);
 
   const go = async () => {

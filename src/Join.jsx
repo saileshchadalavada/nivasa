@@ -1,20 +1,31 @@
 import React, { useState, useEffect } from "react";
-import { getBuilding, joinBuilding } from "./data";
+import { getPublicBuilding, getBuilding, joinBuilding } from "./data";
 import { styles as S, T, css, display, mono, font } from "./styles";
 
 /* Arrived via an invite link (?b=<bid>&join=<code>) for a building the account
-   isn't a member of yet. Confirm the code and join. */
+   isn't a member of yet. Confirm the code and join.
+   SEC-03: display data comes from publicBuildings (no auth needed for name/city).
+   Invite code is still read from the private building doc (requires signedIn). */
 export default function Join({ bid, code: codeFromUrl, uid, username, onJoined, onSignOut }) {
-  const [bld, setBld] = useState(undefined);
+  const [pub, setPub] = useState(undefined);   // public building info (name, city)
+  const [bld, setBld] = useState(undefined);   // private building info (inviteCode)
   const [code, setCode] = useState(codeFromUrl || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  useEffect(() => { getBuilding(bid).then(setBld).catch(() => setBld(null)); }, [bid]);
+  useEffect(() => {
+    getPublicBuilding(bid).then((b) => setPub(b || null)).catch(() => setPub(null));
+    getBuilding(bid).then((b) => setBld(b || null)).catch(() => setBld(null));
+  }, [bid]);
+
+  const displayName = pub?.name || bld?.name || "";
+  const displayLocation = [pub?.city || bld?.city, pub?.state || bld?.state].filter(Boolean).join(", ");
+  const loaded = pub !== undefined || bld !== undefined;
+  const notFound = pub === null && bld === null;
 
   const join = async () => {
     setErr("");
-    if (!bld) return;
+    if (!bld) return setErr("Could not verify invite code. Please try again.");
     if (code.trim().toUpperCase() !== (bld.inviteCode || "")) return setErr("That invite code doesn't match. Ask the admin for the link.");
     setBusy(true);
     try { await joinBuilding(bid, uid, username); onJoined(bid); }
@@ -30,18 +41,18 @@ export default function Join({ bid, code: codeFromUrl, uid, username, onJoined, 
             <div key={fl} style={S.markRow}>{[0,1,2].map((c)=><span key={c} style={S.markDot}/>)}</div>
           ))}
         </div>
-        {bld === undefined ? <p style={W.sub}>Loading…</p>
-          : bld === null ? <p style={W.sub}>That building link is invalid.</p>
+        {!loaded ? <p style={W.sub}>Loading…</p>
+          : notFound ? <p style={W.sub}>That building link is invalid.</p>
           : (
           <>
-            <h1 style={W.title}>Join {bld.name}</h1>
-            <p style={W.sub}>{[bld.city, bld.state].filter(Boolean).join(", ")}</p>
+            <h1 style={W.title}>Join {displayName}</h1>
+            <p style={W.sub}>{displayLocation}</p>
             <label style={W.label}>Invite code</label>
             <input value={code} onChange={(e)=>setCode(e.target.value.toUpperCase())}
               placeholder="from the WhatsApp link" style={{ ...W.input, fontFamily: mono, letterSpacing: 2 }} />
             {err && <div style={W.err}>{err}</div>}
-            <button className="primaryBtn" style={{ ...S.primaryBtn, width:"100%", padding:"13px", marginTop:14 }} onClick={join} disabled={busy}>
-              {busy ? "Joining…" : `Join ${bld.name}`}
+            <button className="primaryBtn" style={{ ...S.primaryBtn, width:"100%", padding:"13px", marginTop:14 }} onClick={join} disabled={busy || !bld}>
+              {busy ? "Joining…" : `Join ${displayName}`}
             </button>
           </>
         )}

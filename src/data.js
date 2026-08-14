@@ -28,6 +28,7 @@ const activityRef = (bid, id) => doc(db, "buildings", bid, "activities", id);
 const presetRef = (bid, id) => doc(db, "buildings", bid, "costPresets", id);
 const votesCol = (bid, aid) => collection(db, "buildings", bid, "activities", aid, "votes");
 const voteRef = (bid, aid, uid) => doc(db, "buildings", bid, "activities", aid, "votes", uid);
+const publicBldRef = (bid) => doc(db, "publicBuildings", bid);
 
 /* ---- account ---- */
 export const subscribeAccount = (uid, cb) =>
@@ -54,11 +55,20 @@ export async function getBuilding(bid) {
   return s.exists() ? { id: bid, ...s.data() } : null;
 }
 
+/* SEC-03: read minimal building info without membership.
+   Used by Join and Auth screens before the user is a member. */
+export async function getPublicBuilding(bid) {
+  const s = await getDoc(publicBldRef(bid));
+  return s.exists() ? { id: bid, ...s.data() } : null;
+}
+
 export async function createBuilding({ details, floors, perFloor, adminUid, username, prefill = false }) {
   const bref = doc(collection(db, "buildings"));
   const bid = bref.id;
   const flats = buildFlatsForSetup(floors, perFloor, prefill);
   const batch = writeBatch(db);
+  // SEC-03: write public discovery doc (name, city, state only)
+  batch.set(publicBldRef(bid), { name: details.name || "", city: details.city || "", state: details.state || "", type: "single" });
   batch.set(bref, { ...details, type: "single", floors, perFloor, adminUid, inviteCode: makeCode(),
     seededSrGold: !!prefill, createdAt: Date.now() });
   flats.forEach((f) => batch.set(flatRef(bid, f.flat), f));
@@ -69,7 +79,17 @@ export async function createBuilding({ details, floors, perFloor, adminUid, user
   await batch.commit();
   return bid;
 }
-export const updateBuilding = (bid, patch) => updateDoc(bldRef(bid), patch);
+export const updateBuilding = async (bid, patch) => {
+  await updateDoc(bldRef(bid), patch);
+  // SEC-03: sync public-facing fields to publicBuildings if changed
+  const publicFields = {};
+  if ("name" in patch) publicFields.name = patch.name;
+  if ("city" in patch) publicFields.city = patch.city;
+  if ("state" in patch) publicFields.state = patch.state;
+  if (Object.keys(publicFields).length > 0) {
+    try { await updateDoc(publicBldRef(bid), publicFields); } catch (e) { console.error("Could not sync public building:", e); }
+  }
+};
 
 /* ---- membership / join ---- */
 export async function joinBuilding(bid, uid, username) {
@@ -443,6 +463,8 @@ export async function deleteBuilding(bid, currentUid) {
     if (n > 0) await batch.commit();
   }
   await deleteDoc(bldRef(bid));
+  // SEC-03: also remove public discovery doc
+  try { await deleteDoc(publicBldRef(bid)); } catch (e) { console.error("Could not delete public building doc:", e); }
   // Clean the admin's own account reference (self-write, allowed by rules)
   if (currentUid) {
     await updateDoc(userRef(currentUid), {
