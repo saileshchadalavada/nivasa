@@ -785,23 +785,23 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
   const monthly = Number(corpus.monthly || 0);
   const opening = Number(corpus.openingBalance || 0);
   const ledger = corpus.ledger || [];
+  const [adding, setAdding] = React.useState(null); // null | "deposit" | "withdrawal"
+  const [desc, setDesc] = React.useState("");
+  const [amt, setAmt] = React.useState("");
 
   const depositsTotal = ledger.filter((e) => e.type === "deposit").reduce((s, e) => s + Number(e.amount || 0), 0);
   const withdrawalsTotal = ledger.filter((e) => e.type === "withdrawal").reduce((s, e) => s + Number(e.amount || 0), 0);
-  const monthlyTotal = Number(corpus.monthlyCollected || 0);
-  const balance = opening + depositsTotal + monthlyTotal - withdrawalsTotal;
+  const balance = opening + depositsTotal - withdrawalsTotal;
 
   const save = (patch) => {
     updateBuilding(bid, { corpus: { ...corpus, ...patch } });
   };
 
-  const addEntry = (type) => {
-    const desc = prompt(type === "deposit" ? "Description (e.g. Painting fund collection)" : "Description (e.g. Lift repair payment)");
-    if (!desc) return;
-    const amt = parseFloat(prompt("Amount (total, not per flat):") || "0");
-    if (!amt || amt <= 0) return;
-    const entry = { id: "c_" + Math.random().toString(36).slice(2, 8), type, amount: amt, description: desc, date: new Date().toISOString().slice(0, 10) };
+  const submitEntry = () => {
+    if (!desc.trim() || !amt || Number(amt) <= 0) return;
+    const entry = { id: "c_" + Math.random().toString(36).slice(2, 8), type: adding, amount: Number(amt), description: desc.trim(), date: new Date().toISOString().slice(0, 10) };
     save({ ledger: [...ledger, entry] });
+    setAdding(null); setDesc(""); setAmt("");
   };
 
   const removeEntry = (id) => {
@@ -815,7 +815,7 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
       <SectionTitle>Corpus Fund</SectionTitle>
       <div style={S.cards}>
         <div style={S.card}>
-          <div style={S.cardLabel}>Monthly per flat</div>
+          <div style={S.cardLabel}>Monthly corpus per flat</div>
           {canEdit ? (
             <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 20, fontWeight: 700, fontFamily: mono, color: T.water, width: "100%", textAlign: "center", padding: "6px 8px" }}
               value={monthly || ""}
@@ -824,7 +824,7 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
           ) : (
             <div style={{ ...S.cardValue, color: T.water, fontSize: 22 }}>{money(monthly)}</div>
           )}
-          <div style={S.cardNote}>{monthly > 0 ? `${money(monthly)} × ${nRes} = ${money(monthly * nRes)}/month` : "not collecting monthly corpus"}</div>
+          <div style={S.cardNote}>{monthly > 0 ? `${money(monthly)} × ${nRes} flats = ${money(monthly * nRes)} collected/month` : "set an amount to collect monthly"}</div>
         </div>
         <div style={S.card}>
           <div style={S.cardLabel}>Opening balance</div>
@@ -836,38 +836,68 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
           ) : (
             <div style={{ ...S.cardValue, color: T.money, fontSize: 22 }}>{money(opening)}</div>
           )}
-          <div style={S.cardNote}>previously collected before app</div>
+          <div style={S.cardNote}>balance before using this app</div>
         </div>
-        <Card label="Total corpus balance" value={money(balance)} tone="money" note="opening + deposits + monthly − withdrawals" />
+        <Card label="Current corpus balance" value={money(balance)} tone={balance >= 0 ? "money" : "owed"}
+          note={`${money(opening)} opening + ${money(depositsTotal)} deposits − ${money(withdrawalsTotal)} withdrawals`} />
       </div>
 
-      {(ledger.length > 0 || canEdit) && (
-        <div style={{ marginTop: 12 }}>
-          {ledger.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
-              {ledger.map((e) => (
-                <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                  background: e.type === "deposit" ? "#E8F6EE" : "#FCEAE4", borderRadius: 8, padding: "8px 12px" }}>
-                  <div>
-                    <span style={{ fontWeight: 600, fontSize: 13.5 }}>{e.type === "deposit" ? "↗" : "↙"} {e.description}</span>
-                    <span style={{ fontSize: 12, color: T.muted, marginLeft: 8 }}>{e.date || ""}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 14, color: e.type === "deposit" ? T.money : T.owed }}>
-                      {e.type === "deposit" ? "+" : "−"}{money(e.amount)}
-                    </span>
-                    {canEdit && <button className="del" style={S.del} onClick={() => removeEntry(e.id)}>✕</button>}
-                  </div>
-                </div>
-              ))}
+      {/* Ledger entries */}
+      {ledger.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, marginBottom: 10 }}>
+          {ledger.map((e) => (
+            <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              background: e.type === "deposit" ? "#E8F6EE" : "#FCEAE4", borderRadius: 8, padding: "10px 14px" }}>
+              <div>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{e.type === "deposit" ? "↗ " : "↙ "}{e.description}</span>
+                <span style={{ fontSize: 12, color: T.muted, marginLeft: 8 }}>{e.date || ""}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 15, color: e.type === "deposit" ? T.money : T.owed }}>
+                  {e.type === "deposit" ? "+" : "−"}{money(e.amount)}
+                </span>
+                {canEdit && <button className="del" style={S.del} onClick={() => removeEntry(e.id)}>✕</button>}
+              </div>
             </div>
-          )}
-          {canEdit && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button className="add" style={S.addBtn} onClick={() => addEntry("deposit")}>+ One-time deposit</button>
-              <button className="add" style={{ ...S.addBtn, color: T.owed, borderColor: T.owed }} onClick={() => addEntry("withdrawal")}>− Withdrawal</button>
-            </div>
-          )}
+          ))}
+        </div>
+      )}
+
+      {/* Inline add form */}
+      {adding && (
+        <div style={{ background: adding === "deposit" ? "#F0FAF4" : "#FDF5F3", border: `1.5px solid ${adding === "deposit" ? T.money : T.owed}`,
+          borderRadius: 12, padding: "14px 16px", marginTop: 10, marginBottom: 10 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: adding === "deposit" ? T.money : T.owed }}>
+            {adding === "deposit" ? "↗ New deposit" : "↙ New withdrawal"}
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <label style={{ flex: "2 1 200px" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.ink, display: "block", marginBottom: 4 }}>Description</span>
+              <input className="cell" style={{ ...S.cellInput, width: "100%", textAlign: "left" }} value={desc}
+                onChange={(e) => setDesc(e.target.value)}
+                placeholder={adding === "deposit" ? "e.g. Painting fund collection" : "e.g. Lift repair payment"} />
+            </label>
+            <label style={{ flex: "0 0 140px" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.ink, display: "block", marginBottom: 4 }}>Amount (₹)</span>
+              <input className="cell" type="number" style={{ ...S.cellInput, width: "100%" }} value={amt}
+                onChange={(e) => setAmt(e.target.value)} placeholder="0" />
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button style={{ background: "transparent", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", color: T.inkSoft, fontFamily: font }}
+              onClick={() => { setAdding(null); setDesc(""); setAmt(""); }}>Cancel</button>
+            <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "8px 20px", opacity: desc.trim() && Number(amt) > 0 ? 1 : 0.5 }}
+              disabled={!desc.trim() || !Number(amt)} onClick={submitEntry}>
+              {adding === "deposit" ? "Add deposit" : "Record withdrawal"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {canEdit && !adding && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: ledger.length > 0 ? 0 : 12 }}>
+          <button className="add" style={S.addBtn} onClick={() => setAdding("deposit")}>+ One-time deposit</button>
+          <button className="add" style={{ ...S.addBtn, color: T.owed, borderColor: T.owed }} onClick={() => setAdding("withdrawal")}>− Withdrawal</button>
         </div>
       )}
     </>
