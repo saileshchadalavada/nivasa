@@ -263,6 +263,10 @@ export default function App() {
   if (!effectiveBid) {
     return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
   }
+  // If membership resolved to null (not a member of this building), go to Landing
+  if (membership === null) {
+    return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
+  }
   // Show onboarding as soon as config + membership are ready — no need to wait for water/maint.
   // Editor roles (water, treasurer) also bypass onboarding so they can reach the Dashboard
   // even if they haven't claimed a flat yet.
@@ -279,6 +283,9 @@ export default function App() {
   }
 
   if (!config || membership === undefined || allWater === null || allMaint === null || !waterMonth || !maintMonth) {
+    if (membership === null) {
+      return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
+    }
     return <Splash text="Loading ledger…" />;
   }
 
