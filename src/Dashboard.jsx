@@ -933,9 +933,6 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
     try {
       const month = [water.rows[0]?.periodLabel, maint.periodLabel].filter(Boolean).join("/") || "current";
       await recordPayment(bid, flat, amount, new Date().toISOString().slice(0, 10), payNote.trim(), month);
-      // Set outstanding to remaining after payment (based on actual computed bill, not stored value)
-      const remaining = Math.max(0, totalDue - amount);
-      await updateBuilding(bid, { [`outstanding.${flat}`]: remaining });
       setPayingFlat(null); setPayAmt(""); setPayNote("");
     } catch (e) { alert("Error: " + (e?.message || "unknown")); }
     finally { setSaving(false); }
@@ -946,9 +943,11 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
     const owed = maint.byMember[f.flat] || 0;
     const currentBill = w + maint.perFlat + corpus - owed;
     const prevOutstanding = Number(outstanding[f.flat] || 0);
-    const totalDue = currentBill + prevOutstanding;
-    const recentPayments = payments.filter((p) => p.flat === f.flat).slice(-3);
-    return { ...f, w, owed, currentBill, prevOutstanding, totalDue, recentPayments };
+    const flatPayments = payments.filter((p) => p.flat === f.flat);
+    const totalPaid = flatPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const totalDue = Math.max(0, currentBill + prevOutstanding - totalPaid);
+    const recentPayments = flatPayments.slice(-3);
+    return { ...f, w, owed, currentBill, prevOutstanding, totalPaid, totalDue, recentPayments };
   });
 
   const totalOutstanding = rows.reduce((s, r) => s + Math.max(0, r.totalDue), 0);
