@@ -309,10 +309,17 @@ export default function Dashboard({
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span style={{ fontSize: 13, color: T.inkSoft }}>Language:</span>
-                <select value={config?.language || "en"} style={{ padding: "6px 10px", border: "1px solid " + T.line, borderRadius: 8, fontSize: 13, background: "#fff", color: T.ink }}
-                  onChange={(e) => { updateBuilding(bid, { language: e.target.value }); }}>
-                  {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.native}</option>)}
-                </select>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {LANGUAGES.map((l) => (
+                    <button key={l.code} onClick={() => { updateBuilding(bid, { language: l.code }); }}
+                      style={{ padding: "6px 14px", border: `1.5px solid ${(config?.language || "en") === l.code ? T.water : T.line}`,
+                        borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                        background: (config?.language || "en") === l.code ? T.waterSoft : "#fff",
+                        color: (config?.language || "en") === l.code ? T.water : T.inkSoft, fontFamily: font }}>
+                      {l.native}
+                    </button>
+                  ))}
+                </div>
               </div>
               <button onClick={() => { onNewBuilding(); setMenuOpen(false); }}
                 style={{ ...MB.drawerItem, color: T.water, fontWeight: 600 }}>＋ Add building</button>
