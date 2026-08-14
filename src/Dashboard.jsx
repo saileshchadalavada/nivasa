@@ -952,11 +952,18 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
   };
 
   const undoLastPayment = async (flat) => {
-    const flatPays = payments.filter((p) => p.flat === flat);
-    if (!flatPays.length) return;
-    const last = flatPays[flatPays.length - 1];
-    const updated = payments.filter((p) => p.id !== last.id);
-    await updateBuilding(bid, { payments: updated });
+    if (saving) return;
+    setSaving(true);
+    try {
+      // Use fresh config from props (re-read on each render)
+      const current = config?.payments || [];
+      const flatPays = current.filter((p) => p.flat === flat);
+      if (!flatPays.length) { setSaving(false); return; }
+      const last = flatPays[flatPays.length - 1];
+      const updated = current.filter((p) => p.id !== last.id);
+      await updateBuilding(bid, { payments: updated });
+    } catch (e) { alert("Undo failed: " + (e?.message || "")); }
+    finally { setSaving(false); }
   };
 
   const rows = residential.map((f) => {
