@@ -3,18 +3,15 @@ import { money, money2, labelFromStart, fmtDate, daysBetween } from "./util";
 import { buildWaterSnapshot, buildMaintSnapshot } from "./snapshot";
 import { generateWaterPoster, generateMaintPoster, sharePoster, canvasToBlob } from "./poster";
 import { HISTORY, HISTORY_MONTHS } from "./historicalWater";
-import { publishPeriod, updateBuilding } from "./data";
+import { publishPeriod } from "./data";
 import { isAdmin, canEditWater, canEditMaint } from "./seedData";
 import Members from "./Members";
 import History from "./History";
 import MeterScan from "./MeterScan";
 import MeterCapture from "./MeterCapture";
 import CsvUpload from "./CsvUpload";
-import Broadcast from "./Broadcast";
-import Community from "./Community";
-import { styles as S, T, css, display, mono, font, applyTheme } from "./styles";
+import { styles as S, T, css, display, mono, applyTheme } from "./styles";
 import { THEME_LIST, getThemeId, setThemeId } from "./theme";
-import { useT, LANGUAGES } from "./i18n";
 
 /* Responsive hook — cards on mobile, table on desktop */
 function useIsMobile(breakpoint = 640) {
@@ -29,7 +26,7 @@ function useIsMobile(breakpoint = 640) {
 
 
 export default function Dashboard({
-  user, membership, config, bid, flats, members, activities,
+  user, membership, config, bid, flats, members,
   waterMonth, maintMonth, pastWater, pastMaint, patchWater, patchMaint,
   displayWater, displayMaint, togglePaidWater, togglePaidMaint,
   waterList, maintList, selWaterId, selMaintId, onSelectWater, onSelectMaint, isLatestWater, isLatestMaint,
@@ -41,7 +38,6 @@ export default function Dashboard({
   const uid = user.uid;
   const mobile = useIsMobile();
   const admin = isAdmin(membership, config, uid);
-  const t = useT(config);
   const canWater = canEditWater(membership, config, uid);
   const canMaint = canEditMaint(membership, config, uid);
   const meFlat = membership.flat;
@@ -52,11 +48,8 @@ export default function Dashboard({
   const allMeters = useMemo(() => [...residential, ...flats.filter((f) => f.isCommon)], [flats, residential]);
   const nRes = residential.length || 1;
 
-  const [tab, setTab] = useState(() => {
-    try { const p = new URLSearchParams(window.location.search).get("tab"); return p || "home"; } catch { return "home"; }
-  });
+  const [tab, setTab] = useState("dashboard");
   const [openFlat, setOpenFlat] = useState(null);
-  const [showBroadcast, setShowBroadcast] = useState(false);
   const [publish, setPublish] = useState(null);
   const [themeId, _setTheme] = useState(getThemeId());
   const switchTheme = (id) => { setThemeId(id); applyTheme(id); _setTheme(id); document.body.style.background = T.bg; }; // "water" | "maint" | null
@@ -121,12 +114,7 @@ export default function Dashboard({
     const total = exp.reduce((s, e) => s + Number(e.amount || 0), 0);
     const byMember = {};
     exp.forEach((e) => { if (e.paidBy && e.paidBy !== "fund") byMember[e.paidBy] = (byMember[e.paidBy] || 0) + Number(e.amount || 0); });
-    const calculated = nRes ? total / nRes : 0;
-    const charge = (M && M.chargePerFlat != null && M.chargePerFlat !== "") ? Number(M.chargePerFlat) : null;
-    const perFlat = charge != null ? charge : calculated;
-    const surplus = charge != null ? (charge - calculated) * nRes : 0;
-    const carryForward = Number((M && M.carryForward) || 0);
-    return { total, perFlat, calculated, charge, surplus, carryForward, byMember };
+    return { total, perFlat: total / nRes, byMember };
   };
 
   // edited period (Water/Maintenance tabs)
@@ -196,10 +184,9 @@ export default function Dashboard({
   };
 
   const tabs = [
-    ["home", "🏠"], ["dashboard", t("overview")], ["water", t("water")], ["maintenance", t("maintenance")],
-    ...(meFlat ? [["flat", t("myFlat")]] : []), ["history", t("history")],
-    ["community", t("community")],
-    ...(admin ? [["members", t("members")]] : []),
+    ["dashboard", "Overview"], ["water", "Water"], ["maintenance", "Maintenance"],
+    ...(meFlat ? [["flat", "My flat"]] : []), ["history", "History"],
+    ...(admin ? [["members", "Members"]] : []),
   ];
 
   return (
@@ -208,7 +195,7 @@ export default function Dashboard({
 
       <header style={{ ...S.header, ...(mobile ? { padding: "14px 16px", gap: 8 } : {}) }}>
         <div style={S.headLeft}>
-          {!mobile && <div onClick={() => setTab("home")} style={{ ...S.mark, background: T.brandDark, cursor: "pointer" }} title="Home">
+          {!mobile && <div style={{ ...S.mark, background: T.brandDark }}>
             {[5,4,3,2,1].map((fl) => (<div key={fl} style={S.markRow}>{[0,1,2].map((c) => <span key={c} style={S.markDot} />)}</div>))}
           </div>}
           <div>
@@ -251,11 +238,7 @@ export default function Dashboard({
                       background: t.color, cursor: "pointer", fontSize: 10, padding: 0 }} />
                 ))}
               </div>}
-              <select value={config?.language || "en"} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,.85)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}
-                onChange={(e) => { updateBuilding(bid, { language: e.target.value }); }}>
-                {LANGUAGES.map((l) => <option key={l.code} value={l.code} style={{ color: "#333", background: "#fff" }}>{l.native}</option>)}
-              </select>
-              <button style={S.signout} onClick={onSignOut}>{t("signOut")}</button>
+              <button style={S.signout} onClick={onSignOut}>Sign out</button>
             </div>
           </div>
         </div>
@@ -266,27 +249,11 @@ export default function Dashboard({
       </nav>
 
       <main style={{ ...S.main, ...(mobile ? { padding: "16px 12px" } : {}) }}>
-        {tab === "home" && (
-          <HomeHub
-            myName={myName} meFlat={meFlat} admin={admin} mobile={mobile} t={t}
-            waterLabel={dw.label} maintLabel={dm.label}
-            myWaterBill={dispWater.rows.find((r) => r.flat === meFlat)?.bill || 0}
-            maintPerFlat={dispMaint.perFlat}
-            activityCount={(activities || []).filter((a) => Date.now() - (a.createdAt || 0) < 7 * 86400000).length}
-            onNav={setTab}
-          />
-        )}
         {tab === "dashboard" && (
           <Overview water={dispWater} maint={dispMaint} paidWater={displayWater?.paidWater || {}} paidMaint={displayMaint?.paidMaint || {}}
             waterPeriod={dw} maintPeriod={dm}
             residential={residential} canWater={canWater} canMaint={canMaint} admin={admin} config={config}
-            togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint} openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile}
-            onBroadcast={() => setShowBroadcast(true)} />
-        )}
-        {showBroadcast && (
-          <Broadcast residential={residential} members={members} water={dispWater} maint={dispMaint}
-            waterPeriod={dw} maintPeriod={dm} config={config}
-            onClose={() => setShowBroadcast(false)} />
+            togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint} openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile} />
         )}
         {tab === "water" && (
           <WaterEntry water={water} setField={setWaterField} setReading={setReading} canEdit={canWater}
@@ -306,11 +273,10 @@ export default function Dashboard({
             periods={maintList} selId={selMaintId} onSelect={onSelectMaint} isLatest={isLatestMaint}
             onPublish={() => setPublish("maint")} publishedAt={displayMaint?.publishedAt}
             onStartNext={onStartMaint} onDeletePeriod={onDeleteMaint} canDelete={canDeleteMaint}
-            startReady={startReadyMaint} saving={saving} mobile={mobile} />
+            startReady={startReadyMaint} saving={saving} mobile={mobile} config={config} bid={bid} />
         )}
         {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} />}
         {tab === "history" && <History flat={meFlat} residential={residential} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} />}
-        {tab === "community" && <Community bid={bid} activities={activities} membership={membership} members={members} config={config} admin={admin} mobile={mobile} />}
         {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} />}
       </main>
 
@@ -325,10 +291,10 @@ export default function Dashboard({
           onDone={() => doPublish(publish)} onClose={() => setPublish(null)} />
       )}
 
-      {(canWater || canMaint) && dirty && ["home", "dashboard", "water", "maintenance"].includes(tab) && (
+      {(canWater || canMaint) && dirty && ["dashboard", "water", "maintenance"].includes(tab) && (
         <div style={S.saveBar}>
           <div style={S.saveBarInner}>
-            <span>${t("unsavedChanges")}</span>
+            <span>Unsaved changes — residents see them once you save.</span>
             <span style={{ display: "flex", gap: 10 }}>
               <button className="ghostBtn" style={S.ghostBtn} onClick={onDiscard} disabled={saving}>Undo</button>
               <button className="primaryBtn" style={S.primaryBtn} onClick={onSave} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
@@ -354,7 +320,7 @@ function roleText(membership, admin, meFlat) {
 }
 
 /* ============================= OVERVIEW ============================= */
-function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile, onBroadcast }) {
+function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile }) {
   const billable = water.rows.reduce((s, r) => s + r.bill, 0) + maint.total;
   const collected = residential.reduce((s, f) => {
     const w = paidWater[f.flat] ? (water.rows.find((r) => r.flat === f.flat)?.bill || 0) : 0;
@@ -376,13 +342,6 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
         <div style={S.inviteBar}>
           <span>Invite code <b style={{ fontFamily: "monospace" }}>{config.inviteCode}</b> — share so neighbours can join.</span>
           <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "7px 14px" }} onClick={onShare}>Share on WhatsApp</button>
-        </div>
-      )}
-
-      {admin && (
-        <div style={{ ...S.inviteBar, marginTop: 0, background: "#E8F6EE", borderColor: T.money }}>
-          <span>📢 Send bills to all residents via WhatsApp or copy messages.</span>
-          <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "7px 14px", background: T.money }} onClick={onBroadcast}>Broadcast bills</button>
         </div>
       )}
 
@@ -541,7 +500,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
       )}
       {showCsv && (
         <CsvUpload existingFlats={flats}
-          onApply={(map, target) => Object.entries(map).forEach(([flat, val]) => setReading(flat, target || "curr", String(val)))}
+          onApply={(map) => Object.entries(map).forEach(([flat, val]) => setReading(flat, "curr", String(val)))}
           onClose={() => setShowCsv(false)} />
       )}
       {!canEdit && <ViewNote>You have view access. Ask the water in-charge or admin to make changes.</ViewNote>}
@@ -711,7 +670,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
         </table>
         </div>
       )}
-      <p style={S.note}>{water.rows.some((r) => r.isCommon) ? "Common/Watchman counts toward the general-tanker % but carries no Manjeera or connection share. " : ""}The Previous (opening) reading carries from last period but is editable — override it if a meter was reset or replaced.</p>
+      <p style={S.note}>Common/Watchman counts toward the general-tanker % but carries no Manjeera or connection share. The Previous (opening) reading carries from last period but is editable — override it if a meter was reset or replaced.</p>
       {canEdit && <PublishBar onPublish={onPublish} publishedAt={publishedAt} kind="water" />}
       <PeriodBanner kind="Water" periodStart={periodStart} periodEnd={periodEnd} />
     </>
@@ -719,7 +678,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
 }
 
 /* ============================ MAINTENANCE ============================ */
-function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setField, periodStart, periodEnd, onBackfill, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, mobile }) {
+function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setField, periodStart, periodEnd, onBackfill, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, mobile, config, bid }) {
   const update = (id, key, val) => setExpenses((xs) => xs.map((e) => e.id === id ? { ...e, [key]: val } : e));
   const remove = (id) => setExpenses((xs) => xs.filter((e) => e.id !== id));
   const add = () => setExpenses((xs) => [...xs, { id: "e" + Date.now(), item: "", amount: 0, paidBy: "fund" }]);
@@ -732,51 +691,9 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
         canEdit={canEdit} onStartNext={onStartNext} onDeletePeriod={onDeletePeriod} canDelete={canDelete} startReady={startReady} saving={saving} />
 
       <div style={S.cards}>
-        <Card label="Total maintenance spent" value={money(maint.total)} tone="ink" note={`${expenses.length} line items`} />
-        <Card label="Calculated split" value={money(maint.calculated)} tone="ink" note={`₹${Math.round(maint.total)} ÷ ${residential.length} flats`} />
-        <div style={S.card}>
-          <div style={S.cardLabel}>Actual amount collected per flat</div>
-          {canEdit ? (
-            <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 22, fontWeight: 700, fontFamily: mono, color: T.water, width: "100%", textAlign: "center", padding: "6px 8px" }}
-              value={maint.charge != null ? maint.charge : ""}
-              placeholder={String(Math.round(maint.calculated))}
-              onChange={(e) => {
-                const v = e.target.value;
-                setField("chargePerFlat", v === "" ? null : Number(v));
-              }} />
-          ) : (
-            <div style={{ ...S.cardValue, color: T.water, fontSize: 24 }}>{money(maint.perFlat)}</div>
-          )}
-          <div style={S.cardNote}>{maint.charge != null ? `₹${Math.round(maint.perFlat)} × ${residential.length} flats = ${money(maint.perFlat * residential.length)}` : "using calculated split"}</div>
-        </div>
+        <Card label="Total spent" value={money(maint.total)} tone="ink" note={`${expenses.length} line items`} />
+        <Card label="Per flat" value={money(maint.perFlat)} tone="water" note={`total ÷ ${residential.length} flats`} />
         <Card label="Owed to members" value={money(Object.values(maint.byMember).reduce((s, n) => s + n, 0))} tone="owed" note="adhoc expenses fronted" />
-        {maint.surplus !== 0 && (
-          <Card label={maint.surplus > 0 ? "Surplus this period" : "Deficit this period"}
-            value={money(Math.abs(maint.surplus))}
-            tone={maint.surplus > 0 ? "money" : "owed"}
-            note={maint.surplus > 0 ? `collecting ₹${Math.round(maint.perFlat - maint.calculated)} extra per flat` : `collecting ₹${Math.round(maint.calculated - maint.perFlat)} less per flat`} />
-        )}
-        <div style={S.card}>
-          <div style={S.cardLabel}>{(() => {
-            const sorted = [...periods].filter((p) => p.periodStart).sort((a, b) => a.periodStart.localeCompare(b.periodStart));
-            const curStart = sorted.find((p) => p.id === selId)?.periodStart || "";
-            const prev = sorted.filter((p) => p.periodStart < curStart).pop();
-            const prevLabel = prev ? labelFromStart(prev.periodStart) : "previous";
-            return maint.carryForward >= 0 ? `Carry from ${prevLabel}` : `Deficit from ${prevLabel}`;
-          })()}</div>
-          {canEdit ? (
-            <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 22, fontWeight: 700, fontFamily: mono, color: maint.carryForward >= 0 ? T.money : T.owed, width: "100%", textAlign: "center", padding: "6px 8px" }}
-              value={maint.carryForward || ""}
-              placeholder="0"
-              onChange={(e) => {
-                const v = e.target.value;
-                setField("carryForward", v === "" ? 0 : Number(v));
-              }} />
-          ) : (
-            <div style={{ ...S.cardValue, color: maint.carryForward >= 0 ? T.money : T.owed, fontSize: 24 }}>{money(Math.abs(maint.carryForward))}</div>
-          )}
-          <div style={S.cardNote}>{maint.carryForward ? (maint.carryForward > 0 ? "surplus brought forward" : "shortfall brought forward") : "no carry — auto-set on next period"}</div>
-        </div>
       </div>
 
       <SectionTitle>Expense items {canEdit && !mobile && <span style={S.titleHint}>— set "Paid by" to a flat when a member fronts the cost</span>}</SectionTitle>
@@ -852,8 +769,107 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
         </div>
       )}
       {canEdit && <button className="add" style={S.addBtn} onClick={add}>+ Add expense</button>}
+      {/* ---- Corpus Fund ---- */}
+      <CorpusFund config={config} bid={bid} canEdit={canEdit} nRes={residential.length} mobile={mobile} />
+
       {canEdit && <PublishBar onPublish={onPublish} publishedAt={publishedAt} kind="maintenance" />}
       <PeriodBanner kind="Maintenance" periodStart={periodStart} periodEnd={periodEnd} />
+    </>
+  );
+}
+
+
+/* ---- Corpus Fund section ---- */
+function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
+  const corpus = config?.corpus || {};
+  const monthly = Number(corpus.monthly || 0);
+  const opening = Number(corpus.openingBalance || 0);
+  const ledger = corpus.ledger || [];
+
+  const depositsTotal = ledger.filter((e) => e.type === "deposit").reduce((s, e) => s + Number(e.amount || 0), 0);
+  const withdrawalsTotal = ledger.filter((e) => e.type === "withdrawal").reduce((s, e) => s + Number(e.amount || 0), 0);
+  const monthlyTotal = Number(corpus.monthlyCollected || 0);
+  const balance = opening + depositsTotal + monthlyTotal - withdrawalsTotal;
+
+  const save = (patch) => {
+    updateBuilding(bid, { corpus: { ...corpus, ...patch } });
+  };
+
+  const addEntry = (type) => {
+    const desc = prompt(type === "deposit" ? "Description (e.g. Painting fund collection)" : "Description (e.g. Lift repair payment)");
+    if (!desc) return;
+    const amt = parseFloat(prompt("Amount (total, not per flat):") || "0");
+    if (!amt || amt <= 0) return;
+    const entry = { id: "c_" + Math.random().toString(36).slice(2, 8), type, amount: amt, description: desc, date: new Date().toISOString().slice(0, 10) };
+    save({ ledger: [...ledger, entry] });
+  };
+
+  const removeEntry = (id) => {
+    if (window.confirm("Remove this corpus entry?")) {
+      save({ ledger: ledger.filter((e) => e.id !== id) });
+    }
+  };
+
+  return (
+    <>
+      <SectionTitle>Corpus Fund</SectionTitle>
+      <div style={S.cards}>
+        <div style={S.card}>
+          <div style={S.cardLabel}>Monthly per flat</div>
+          {canEdit ? (
+            <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 20, fontWeight: 700, fontFamily: mono, color: T.water, width: "100%", textAlign: "center", padding: "6px 8px" }}
+              value={monthly || ""}
+              placeholder="0"
+              onChange={(e) => save({ monthly: e.target.value === "" ? 0 : Number(e.target.value) })} />
+          ) : (
+            <div style={{ ...S.cardValue, color: T.water, fontSize: 22 }}>{money(monthly)}</div>
+          )}
+          <div style={S.cardNote}>{monthly > 0 ? `${money(monthly)} \u00d7 ${nRes} = ${money(monthly * nRes)}/month` : "not collecting monthly corpus"}</div>
+        </div>
+        <div style={S.card}>
+          <div style={S.cardLabel}>Opening balance</div>
+          {canEdit ? (
+            <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 20, fontWeight: 700, fontFamily: mono, color: T.money, width: "100%", textAlign: "center", padding: "6px 8px" }}
+              value={opening || ""}
+              placeholder="0"
+              onChange={(e) => save({ openingBalance: e.target.value === "" ? 0 : Number(e.target.value) })} />
+          ) : (
+            <div style={{ ...S.cardValue, color: T.money, fontSize: 22 }}>{money(opening)}</div>
+          )}
+          <div style={S.cardNote}>previously collected before app</div>
+        </div>
+        <Card label="Total corpus balance" value={money(balance)} tone="money" note="opening + deposits + monthly \u2212 withdrawals" />
+      </div>
+
+      {(ledger.length > 0 || canEdit) && (
+        <div style={{ marginTop: 12 }}>
+          {ledger.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+              {ledger.map((e) => (
+                <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                  background: e.type === "deposit" ? "#E8F6EE" : "#FCEAE4", borderRadius: 8, padding: "8px 12px" }}>
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: 13.5 }}>{e.type === "deposit" ? "\u2197" : "\u2199"} {e.description}</span>
+                    <span style={{ fontSize: 12, color: T.muted, marginLeft: 8 }}>{e.date || ""}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 14, color: e.type === "deposit" ? T.money : T.owed }}>
+                      {e.type === "deposit" ? "+" : "\u2212"}{money(e.amount)}
+                    </span>
+                    {canEdit && <button className="del" style={S.del} onClick={() => removeEntry(e.id)}>\u2715</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {canEdit && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="add" style={S.addBtn} onClick={() => addEntry("deposit")}>+ One-time deposit</button>
+              <button className="add" style={{ ...S.addBtn, color: T.owed, borderColor: T.owed }} onClick={() => addEntry("withdrawal")}>\u2212 Withdrawal</button>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -1076,50 +1092,3 @@ function PublishModal({ kind, text, poster, onDone, onClose }) {
 function Drawer({ children, onClose }) {
   return (<div style={S.drawerBack} onClick={onClose}><div style={S.drawer} onClick={(e) => e.stopPropagation()}><button style={S.drawerClose} onClick={onClose}>✕</button>{children}</div></div>);
 }
-
-/* ---- Home hub — icon grid with live data summaries ---- */
-function HomeHub({ myName, meFlat, admin, mobile, t, waterLabel, maintLabel, myWaterBill, maintPerFlat, activityCount, onNav }) {
-  const cards = [
-    { key: "water", icon: "💧", label: t("water"), sub: waterLabel || t("current"), value: myWaterBill > 0 ? money(myWaterBill) : t("view"), color: "#4B86E0" },
-    { key: "maintenance", icon: "🔧", label: t("maintenance"), sub: maintLabel || t("current"), value: maintPerFlat > 0 ? money(maintPerFlat) : t("view"), color: "#E8883C" },
-    { key: "dashboard", icon: "📋", label: t("overview"), sub: t("billsPayments"), value: t("view"), color: "#6B5CE7" },
-    ...(meFlat ? [{ key: "flat", icon: "🏠", label: t("myFlat"), sub: `${t("flat")} ${meFlat}`, value: t("view"), color: "#2FA84F" }] : []),
-    { key: "community", icon: "📊", label: t("community"), sub: activityCount > 0 ? `${activityCount} ${t("recentActivity")}` : t("pollsUpdates"), value: activityCount > 0 ? `${activityCount} new` : t("view"), color: "#D64B8A" },
-    { key: "history", icon: "📜", label: t("history"), sub: t("pastMonths"), value: t("view"), color: "#8A8A9A" },
-    ...(admin ? [{ key: "members", icon: "👥", label: t("members"), sub: t("rolesFlats"), value: t("manage"), color: "#B07A0E" }] : []),
-  ];
-
-  return (
-    <div>
-      <div style={H.welcome}>
-        <div style={H.welcomeText}>{t("welcome")} <b>{myName}</b></div>
-        <div style={H.welcomeSub}>{t("welcomeSub")}</div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: mobile ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: mobile ? 10 : 14 }}>
-        {cards.map((c) => (
-          <button key={c.key} onClick={() => onNav(c.key)} style={H.card}>
-            <div style={{ fontSize: mobile ? 28 : 34, marginBottom: 6 }}>{c.icon}</div>
-            <div style={H.cardLabel}>{c.label}</div>
-            <div style={H.cardSub}>{c.sub}</div>
-            <div style={{ ...H.cardValue, color: c.color }}>{c.value}</div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const H = {
-  welcome: { marginBottom: 20, textAlign: "center" },
-  welcomeText: { fontFamily: display, fontSize: 20, fontWeight: 700, color: T.ink },
-  welcomeSub: { fontSize: 14, color: T.inkSoft, marginTop: 4 },
-  card: {
-    background: T.surface, border: `1px solid ${T.line}`, borderRadius: 16,
-    padding: "20px 14px", textAlign: "center", cursor: "pointer",
-    transition: "transform .1s, box-shadow .1s", fontFamily: font,
-    display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-  },
-  cardLabel: { fontFamily: display, fontWeight: 700, fontSize: 15, color: T.ink },
-  cardSub: { fontSize: 12, color: T.muted, marginTop: 2 },
-  cardValue: { fontFamily: mono, fontWeight: 700, fontSize: 16, marginTop: 6 },
-};
