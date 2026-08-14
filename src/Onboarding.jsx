@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from "react";
-import { claimFlatWithDetails, setMemberFlat, updateMembership } from "./data";
+import { claimFlat } from "./data";
 import { styles as S, T, css, display, font } from "./styles";
 
-/* New member picks their flat within a specific building (bid). */
+/* New member picks their flat within a specific building (bid).
+   SEC-07 / DB-04: uses atomic claimFlat transaction — flat+member update
+   succeeds or fails together, no partial state. */
 export default function Onboarding({ bid, uid, username, flats, config, onDone, onSignOut }) {
   const [picked, setPicked] = useState(null);
   const [name, setName] = useState("");
@@ -26,11 +28,28 @@ export default function Onboarding({ bid, uid, username, flats, config, onDone, 
     if (!name.trim()) return setErr("Add the owner / resident name.");
     setBusy(true);
     try {
-      await claimFlatWithDetails(bid, picked, uid, { name: name.trim(), meter: meter.trim() });
-      await setMemberFlat(bid, uid, picked);
-      await updateMembership(bid, uid, { residentType, phone: phone.trim() || null });
+      await claimFlat({
+        bid,
+        uid,
+        flat: picked,
+        name: name.trim(),
+        meter: meter.trim(),
+        residentType,
+        phone: phone.trim() || null,
+      });
       onDone();
-    } catch (e) { setErr("Couldn't save — that flat may have just been claimed."); setBusy(false); }
+    } catch (e) {
+      const code = e?.message || "";
+      if (code === "flat-already-claimed") {
+        setErr("That flat was just claimed by someone else. Please pick another.");
+      } else if (code === "member-already-has-flat") {
+        setErr("You already have a flat assigned. Contact admin if this is wrong.");
+      } else {
+        setErr("Couldn't save — please try again.");
+        console.error("Flat claim failed:", e);
+      }
+      setBusy(false);
+    }
   };
 
   return (

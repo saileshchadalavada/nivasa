@@ -1,8 +1,9 @@
 import React from "react";
-import { setMemberRoles, adminAssignFlat, updateMembership, removeMember } from "./data";
+import { setMemberRoles, assignMemberFlat, updateMembership, removeMember } from "./data";
 import { styles as S, T, font } from "./styles";
 
-/* Admin-only: grant/revoke per-building roles, override a member's flat. */
+/* Admin-only: grant/revoke per-building roles, override a member's flat.
+   DB-05: flat assignment uses a transaction to prevent overwriting occupied flats. */
 export default function Members({ bid, members, flats, config, onDeleteBuilding, onImportWater2026, canImportWater2026, mobile, onConfirm }) {
   const flatOptions = flats.filter((f) => !f.isCommon).map((f) => f.flat).sort();
 
@@ -10,6 +11,28 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
     const has = u.roles?.includes(role);
     const next = has ? u.roles.filter((r) => r !== role) : [...(u.roles || []), role];
     setMemberRoles(bid, u.uid, next);
+  };
+
+  // DB-05: use atomic transaction for flat assignment
+  const handleAssignFlat = async (u, newFlat) => {
+    try {
+      await assignMemberFlat({
+        bid,
+        memberUid: u.uid,
+        oldFlat: u.flat || null,
+        newFlat: newFlat || null,
+      });
+    } catch (e) {
+      const code = e?.message || "";
+      if (code === "flat-already-claimed") {
+        alert(`Flat ${newFlat} is already claimed by another member.`);
+      } else if (code === "common-flat-not-allowed") {
+        alert("The Common meter cannot be assigned to a member.");
+      } else {
+        alert("Flat assignment failed: " + (e?.message || "unknown error"));
+        console.error("assignMemberFlat failed:", e);
+      }
+    }
   };
 
   return (
@@ -32,7 +55,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                     </div>
                   </div>
                   <select className="cell" style={{ ...S.cellSelect, fontSize: 13 }} value={u.flat || ""}
-                    onChange={(e) => adminAssignFlat(bid, u.uid, e.target.value || null, u.flat || null)}>
+                    onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
                     <option value="">— none —</option>
                     {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
                   </select>
@@ -88,7 +111,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                   </td>
                   <td style={{ ...S.td, padding: "4px 8px" }}>
                     <select className="cell" style={S.cellSelect} value={u.flat || ""}
-                      onChange={(e) => adminAssignFlat(bid, u.uid, e.target.value || null, u.flat || null)}>
+                      onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
                       <option value="">— none —</option>
                       {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
                     </select>

@@ -6,6 +6,7 @@
 */
 import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, onSnapshot, writeBatch, query, arrayUnion, arrayRemove,
+  runTransaction,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { buildFlatsForSetup, buildSeedWater, buildSeedMaint, nextMonthBounds } from "./seedData";
@@ -106,6 +107,78 @@ export const claimFlatWithDetails = (bid, flat, uid, details) =>
   updateDoc(flatRef(bid, flat), { ...details, claimedByUid: uid });
 /* Set a flat's meter serial (lives on the flat, shared across all periods). */
 export const setFlatMeter = (bid, flat, meter) => updateDoc(flatRef(bid, flat), { meter });
+
+/* SEC-07 / DB-04: atomic flat claim — transaction ensures flat+member update
+   succeeds or fails together. No partial state. */
+export async function claimFlat({ bid, uid, flat, name, meter, residentType, phone }) {
+  const selectedFlatRef = flatRef(bid, flat);
+  const selectedMemberRef = memberRef(bid, uid);
+
+  await runTransaction(db, async (transaction) => {
+    const [flatSnap, memberSnap] = await Promise.all([
+      transaction.get(selectedFlatRef),
+      transaction.get(selectedMemberRef),
+    ]);
+
+    if (!flatSnap.exists()) throw new Error("flat-not-found");
+    if (!memberSnap.exists()) throw new Error("membership-not-found");
+
+    const flatData = flatSnap.data();
+    const memberData = memberSnap.data();
+
+    if (flatData.isCommon) throw new Error("common-flat-not-allowed");
+    if (flatData.claimedByUid && flatData.claimedByUid !== uid) throw new Error("flat-already-claimed");
+    if (memberData.flat && memberData.flat !== flat) throw new Error("member-already-has-flat");
+
+    transaction.update(selectedFlatRef, {
+      claimedByUid: uid,
+      name: name.trim(),
+      meter: meter.trim(),
+    });
+
+    transaction.update(selectedMemberRef, {
+      flat,
+      residentType,
+      phone: phone?.trim() || null,
+    });
+  });
+}
+
+/* DB-05: atomic admin flat assignment — validates target is not occupied
+   by another member before reassigning. */
+export async function assignMemberFlat({ bid, memberUid, oldFlat, newFlat }) {
+  await runTransaction(db, async (transaction) => {
+    const memberDocument = memberRef(bid, memberUid);
+    const memberSnap = await transaction.get(memberDocument);
+
+    if (!memberSnap.exists()) throw new Error("membership-not-found");
+
+    let targetRef = null;
+
+    if (newFlat) {
+      targetRef = flatRef(bid, newFlat);
+      const targetSnap = await transaction.get(targetRef);
+
+      if (!targetSnap.exists()) throw new Error("flat-not-found");
+
+      const target = targetSnap.data();
+      if (target.isCommon) throw new Error("common-flat-not-allowed");
+      if (target.claimedByUid && target.claimedByUid !== memberUid) {
+        throw new Error("flat-already-claimed");
+      }
+    }
+
+    if (oldFlat && oldFlat !== newFlat) {
+      transaction.update(flatRef(bid, oldFlat), { claimedByUid: null });
+    }
+
+    if (targetRef) {
+      transaction.update(targetRef, { claimedByUid: memberUid });
+    }
+
+    transaction.update(memberDocument, { flat: newFlat || null });
+  });
+}
 
 /* ---- WATER periods ---- */
 export const subscribeWaterPeriods = (bid, cb) =>
