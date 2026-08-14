@@ -881,18 +881,38 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
 /* ---- Corpus Fund section ---- */
 function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
   const corpus = config?.corpus || { monthly: 0, openingBalance: 0, ledger: [], monthlyCollected: 0 };
-  const monthly = Number(corpus.monthly || 0);
-  const opening = Number(corpus.openingBalance || 0);
   const ledger = corpus.ledger || [];
+  const [localMonthly, setLocalMonthly] = React.useState(String(corpus.monthly || ""));
+  const [localOpening, setLocalOpening] = React.useState(String(corpus.openingBalance || ""));
+  const [saved, setSaved] = React.useState(false);
   const [adding, setAdding] = React.useState(null);
   const [desc, setDesc] = React.useState("");
   const [amt, setAmt] = React.useState("");
 
+  // Sync local state when config changes from Firestore
+  React.useEffect(() => { setLocalMonthly(String(corpus.monthly || "")); }, [corpus.monthly]);
+  React.useEffect(() => { setLocalOpening(String(corpus.openingBalance || "")); }, [corpus.openingBalance]);
+
+  const monthly = Number(corpus.monthly || 0);
+  const opening = Number(corpus.openingBalance || 0);
   const depositsTotal = ledger.filter((e) => e.type === "deposit").reduce((s, e) => s + Number(e.amount || 0), 0);
   const withdrawalsTotal = ledger.filter((e) => e.type === "withdrawal").reduce((s, e) => s + Number(e.amount || 0), 0);
   const balance = opening + depositsTotal - withdrawalsTotal;
 
-  const save = (patch) => { updateBuilding(bid, { corpus: { ...corpus, ...patch } }); };
+  const save = (patch) => {
+    updateBuilding(bid, { corpus: { ...corpus, ...patch } });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const saveMonthly = () => {
+    const v = Number(localMonthly) || 0;
+    if (v !== monthly) save({ monthly: v });
+  };
+  const saveOpening = () => {
+    const v = Number(localOpening) || 0;
+    if (v !== opening) save({ openingBalance: v });
+  };
 
   const submitEntry = () => {
     if (!desc.trim() || !amt || Number(amt) <= 0) return;
@@ -909,32 +929,41 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
 
   return (
     <>
-      <SectionTitle>Corpus Fund</SectionTitle>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <SectionTitle>Corpus Fund</SectionTitle>
+        {saved && <span style={{ fontSize: 12, color: T.money, fontWeight: 700, animation: "none" }}>✓ Saved</span>}
+      </div>
       <div style={S.cards}>
         <div style={S.card}>
           <div style={S.cardLabel}>Monthly corpus per flat</div>
           {canEdit ? (
-            <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 20, fontWeight: 700, fontFamily: mono, color: T.water, width: "100%", textAlign: "center", padding: "6px 8px" }}
-              value={monthly || ""} placeholder="0"
-              onChange={(e) => save({ monthly: e.target.value === "" ? 0 : Number(e.target.value) })} />
+            <input className="cell" type="number"
+              style={{ ...S.cellInput, fontSize: 20, fontWeight: 700, fontFamily: mono, color: T.water, width: "100%", textAlign: "center", padding: "6px 8px" }}
+              value={localMonthly} placeholder="0"
+              onChange={(e) => setLocalMonthly(e.target.value)}
+              onBlur={saveMonthly}
+              onKeyDown={(e) => e.key === "Enter" && saveMonthly()} />
           ) : (
             <div style={{ ...S.cardValue, color: T.water, fontSize: 22 }}>{money(monthly)}</div>
           )}
-          <div style={S.cardNote}>{monthly > 0 ? money(monthly) + " × " + nRes + " flats = " + money(monthly * nRes) + " collected/month" : "set an amount to collect monthly"}</div>
+          <div style={S.cardNote}>{monthly > 0 ? `${money(monthly)} × ${nRes} flats = ${money(monthly * nRes)} collected/month` : "set an amount to collect monthly"}</div>
         </div>
         <div style={S.card}>
           <div style={S.cardLabel}>Opening balance</div>
           {canEdit ? (
-            <input className="cell" type="number" style={{ ...S.cellInput, fontSize: 20, fontWeight: 700, fontFamily: mono, color: T.money, width: "100%", textAlign: "center", padding: "6px 8px" }}
-              value={opening || ""} placeholder="0"
-              onChange={(e) => save({ openingBalance: e.target.value === "" ? 0 : Number(e.target.value) })} />
+            <input className="cell" type="number"
+              style={{ ...S.cellInput, fontSize: 20, fontWeight: 700, fontFamily: mono, color: T.money, width: "100%", textAlign: "center", padding: "6px 8px" }}
+              value={localOpening} placeholder="0"
+              onChange={(e) => setLocalOpening(e.target.value)}
+              onBlur={saveOpening}
+              onKeyDown={(e) => e.key === "Enter" && saveOpening()} />
           ) : (
             <div style={{ ...S.cardValue, color: T.money, fontSize: 22 }}>{money(opening)}</div>
           )}
           <div style={S.cardNote}>balance before using this app</div>
         </div>
         <Card label="Current corpus balance" value={money(balance)} tone={balance >= 0 ? "money" : "owed"}
-          note={money(opening) + " opening + " + money(depositsTotal) + " deposits − " + money(withdrawalsTotal) + " withdrawals"} />
+          note={`${money(opening)} opening + ${money(depositsTotal)} deposits − ${money(withdrawalsTotal)} withdrawals`} />
       </div>
 
       {ledger.length > 0 && (
@@ -958,7 +987,7 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
       )}
 
       {adding && (
-        <div style={{ background: adding === "deposit" ? "#F0FAF4" : "#FDF5F3", border: "1.5px solid " + (adding === "deposit" ? T.money : T.owed),
+        <div style={{ background: adding === "deposit" ? "#F0FAF4" : "#FDF5F3", border: `1.5px solid ${adding === "deposit" ? T.money : T.owed}`,
           borderRadius: 12, padding: "14px 16px", marginTop: 10, marginBottom: 10 }}>
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: adding === "deposit" ? T.money : T.owed }}>
             {adding === "deposit" ? "↗ New deposit" : "↙ New withdrawal"}
@@ -971,7 +1000,7 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
                 placeholder={adding === "deposit" ? "e.g. Painting fund collection" : "e.g. Lift repair payment"} />
             </label>
             <label style={{ flex: "0 0 140px" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: T.ink, display: "block", marginBottom: 4 }}>Amount</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.ink, display: "block", marginBottom: 4 }}>Amount (₹)</span>
               <input className="cell" type="number" style={{ ...S.cellInput, width: "100%" }} value={amt}
                 onChange={(e) => setAmt(e.target.value)} placeholder="0" />
             </label>
