@@ -166,7 +166,30 @@ export async function startNextMaintPeriod(bid, current) {
   const total = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
   const charge = current.chargePerFlat != null ? Number(current.chargePerFlat) : null;
   const prevCarry = Number(current.carryForward || 0);
-  const surplus = charge != null ? (charge * 15 - total) + prevCarry : prevCarry;
+
+  // Get actual flat count and building config
+  const [bldSnap, flatsSnap] = await Promise.all([getDoc(bldRef(bid)), getDocs(flatsCol(bid))]);
+  const bldData = bldSnap.exists() ? bldSnap.data() : {};
+  const nFlats = flatsSnap.docs.filter((d) => !d.data().isCommon).length || 1;
+
+  const surplus = charge != null ? (charge * nFlats - total) + prevCarry : prevCarry;
+
+  // Auto-deposit monthly corpus when closing a period
+  const corpus = bldData.corpus || {};
+  const corpusMonthly = Number(corpus.monthly || 0);
+  if (corpusMonthly > 0) {
+    const closingLabel = current.periodStart ? new Date(current.periodStart + "T00:00:00").toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : "period";
+    const deposit = {
+      id: "cm_" + Math.random().toString(36).slice(2, 8),
+      type: "deposit",
+      amount: corpusMonthly * nFlats,
+      description: `Monthly corpus — ${closingLabel} (₹${corpusMonthly} × ${nFlats} flats)`,
+      date: new Date().toISOString().slice(0, 10),
+      auto: true,
+    };
+    await updateDoc(bldRef(bid), { corpus: { ...corpus, ledger: [...(corpus.ledger || []), deposit] } });
+  }
+
   const ref = doc(maintCol(bid));
   await setDoc(ref, {
     periodStart: b.start, periodEnd: b.end,
