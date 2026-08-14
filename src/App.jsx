@@ -177,6 +177,16 @@ export default function App() {
   const save = async () => {
     if (waterDirty && (!waterMonth.periodStart || !waterMonth.periodEnd)) { alert("Set the water period From/To dates before saving."); return; }
     if (maintDirty && (!maintMonth.periodStart || !maintMonth.periodEnd)) { alert("Set the maintenance period From/To dates before saving."); return; }
+    // FUNC-08: block save when any meter has current < previous (likely data entry error)
+    if (waterDirty) {
+      const badFlats = Object.entries(waterMonth.readings || {})
+        .filter(([, r]) => r.curr !== "" && r.curr != null && Number(r.curr) < Number(r.prev || 0))
+        .map(([flat]) => flat);
+      if (badFlats.length > 0) {
+        alert(`Current reading is less than previous for flat(s): ${badFlats.join(", ")}.\n\nPlease correct the readings. If the meter was replaced, contact admin to adjust manually.`);
+        return;
+      }
+    }
     if (waterDirty) { const o = overlap(sortedWater, waterMonth); if (o && !window.confirm(`These water dates overlap the ${labelFromStart(o.periodStart) || "another"} period (${o.periodStart} → ${o.periodEnd}). Save anyway?`)) return; }
     if (maintDirty) { const o = overlap(sortedMaint, maintMonth); if (o && !window.confirm(`These maintenance dates overlap the ${labelFromStart(o.periodStart) || "another"} period (${o.periodStart} → ${o.periodEnd}). Save anyway?`)) return; }
     setSaving(true);

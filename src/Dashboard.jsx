@@ -465,7 +465,7 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
         <Card label="Water this period" value={money(water.grandTotal)} tone="water" note={water.costItems.length ? water.costItems.map((ci) => ci.label || "cost").join(" + ") : "no costs entered"} />
         <Card label="Maintenance this period" value={money(maint.total)} tone="ink" note={`${money(maint.perFlat)} per flat`} />
         <Card label="Total billable" value={money(billable)} tone="ink" note={`water + maintenance, ${residential.length} flats`} />
-        <Card label="Collected" value={money(collected)} tone="money" note={`${Math.round((collected / (billable || 1)) * 100)}% of billable`} />
+        <Card label="Total payments recorded" value={money(collected)} tone="money" note="all periods combined" />
         {(() => {
           const c = config?.corpus || {};
           const cBal = Number(c.openingBalance || 0)
@@ -901,6 +901,11 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
   const doRecord = async (flat, totalDue) => {
     const amount = Number(payAmt) || 0;
     if (amount <= 0) return;
+    // Temporarily cap overpayment until Phase 2 credit system (FUNC-10)
+    if (amount > totalDue && totalDue > 0) {
+      alert(`Payment cannot exceed the amount due (${money(totalDue)}). Overpayment credit will be supported in a future update.`);
+      return;
+    }
     setSaving(true);
     try {
       const month = [water.rows[0]?.periodLabel, maint.periodLabel].filter(Boolean).join("/") || "current";

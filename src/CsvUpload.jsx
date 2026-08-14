@@ -1,9 +1,13 @@
 import React, { useState, useMemo } from "react";
+import Papa from "papaparse";
 import { styles as S, T, css, display, mono, font } from "./styles";
 
 /* CSV upload for bulk meter readings.
    Expected format: Flat,Reading (2 columns, with or without header).
-   Common/Watchman meter can use "Common", "001", or "common". */
+   Common/Watchman meter can use "Common", "001", or "common".
+
+   FUNC-06: uses Papa Parse for proper CSV quoting/escaping.
+   FUNC-07: strict numeric validation — rejects negative, NaN, multi-decimal. */
 
 const COMMON_ALIASES = new Set(["common", "001", "watchman", "com"]);
 const normaliseFlat = (v) => {
@@ -11,16 +15,43 @@ const normaliseFlat = (v) => {
   return COMMON_ALIASES.has(s.toLowerCase()) ? "Common" : s;
 };
 
+/* FUNC-07: strict numeric validation — returns { value, error } */
+function parseReading(raw) {
+  const s = String(raw).trim();
+  if (s === "") return { value: null, error: "empty" };
+  const n = Number(s);
+  if (!isFinite(n)) return { value: null, error: `"${s}" is not a valid number` };
+  if (n < 0) return { value: null, error: `negative value (${s})` };
+  // Reject multiple decimal points (Number("1.2.3") is NaN, already caught, but be explicit)
+  if ((s.match(/\./g) || []).length > 1) return { value: null, error: `malformed decimal (${s})` };
+  return { value: n, error: null };
+}
+
+/* FUNC-06: parse with Papa Parse instead of manual split */
 function parseCsv(text) {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (!lines.length) return [];
-  const first = lines[0].split(/[,\t;]/).map((c) => c.trim());
-  const hasHeader = first.length >= 2 && isNaN(Number(first[1]));
-  const rows = hasHeader ? lines.slice(1) : lines;
-  return rows.map((line) => {
-    const cols = line.split(/[,\t;]/).map((c) => c.trim());
-    return { flat: normaliseFlat(cols[0] || ""), reading: cols[1] || "" };
-  }).filter((r) => r.flat && r.reading !== "");
+  const result = Papa.parse(text.trim(), {
+    skipEmptyLines: true,
+    dynamicTyping: false, // keep as strings for validation
+  });
+  if (!result.data || !result.data.length) return [];
+
+  // Detect header row: if second column of first row is not a valid number
+  const first = result.data[0];
+  const hasHeader = first.length >= 2 && !isFinite(Number(String(first[1]).trim()));
+  const dataRows = hasHeader ? result.data.slice(1) : result.data;
+
+  return dataRows.map((cols, lineIdx) => {
+    const flat = normaliseFlat(cols[0] || "");
+    const rawReading = (cols[1] || "").trim();
+    const parsed = parseReading(rawReading);
+    return {
+      flat,
+      reading: rawReading,
+      value: parsed.value,
+      error: parsed.error,
+      line: (hasHeader ? lineIdx + 2 : lineIdx + 1), // 1-based line number
+    };
+  }).filter((r) => r.flat); // drop rows with no flat
 }
 
 function downloadTemplate() {
@@ -50,6 +81,14 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
 
   const doParse = () => {
     const parsed = parseCsv(raw);
+    // Check for duplicate flats
+    const seen = new Set();
+    parsed.forEach((r) => {
+      if (seen.has(r.flat)) {
+        r.error = r.error || `duplicate flat ${r.flat}`;
+      }
+      seen.add(r.flat);
+    });
     setRows(parsed);
     setStep("preview");
   };
@@ -65,12 +104,13 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
 
   const matched = rows.filter((r) => flatSet.has(r.flat));
   const unmatched = rows.filter((r) => !flatSet.has(r.flat));
+  const validRows = matched.filter((r) => !r.error && r.value != null);
+  const errorRows = matched.filter((r) => r.error);
 
   const apply = () => {
     const map = {};
-    matched.forEach((r) => {
-      const val = parseFloat(String(r.reading).replace(/[^\d.]/g, "")) || 0;
-      if (val > 0) map[r.flat] = val;
+    validRows.forEach((r) => {
+      if (r.value > 0) map[r.flat] = r.value;
     });
     onApply(map, target);
     onClose();
@@ -123,7 +163,7 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
               style={M.textarea}
             />
             <div style={{ fontSize: 12, color: T.muted, marginTop: 6, lineHeight: 1.4 }}>
-              Comma, tab, or semicolon separated. Header row is optional.
+              Standard CSV format (quoted fields and escaped commas are supported).
             </div>
             <div style={M.foot}>
               <button style={S.ghostBtn2} onClick={onClose}>Cancel</button>
@@ -141,6 +181,16 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
               <div style={M.warn}>
                 {unmatched.length} row{unmatched.length > 1 ? "s" : ""} didn't match a flat:{" "}
                 {unmatched.map((r) => r.flat).join(", ")}. These will be skipped.
+              </div>
+            )}
+            {errorRows.length > 0 && (
+              <div style={M.errBox}>
+                {errorRows.length} row{errorRows.length > 1 ? "s have" : " has"} invalid readings and will be skipped:
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                  {errorRows.map((r) => (
+                    <li key={r.flat}>Line {r.line}, Flat {r.flat}: {r.error}</li>
+                  ))}
+                </ul>
               </div>
             )}
             {matched.length === 0 && (
@@ -162,7 +212,9 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
                         <td style={{ ...S.td, fontWeight: 600 }}>{r.flat}</td>
                         <td style={{ ...S.td, textAlign: "right", fontFamily: mono }}>{r.reading}</td>
                         <td style={{ ...S.td, textAlign: "center" }}>
-                          <span style={{ color: T.money, fontSize: 12, fontWeight: 600 }}>✓ ready</span>
+                          {r.error
+                            ? <span style={{ color: T.owed, fontSize: 12, fontWeight: 600 }} title={r.error}>✗ {r.error}</span>
+                            : <span style={{ color: T.money, fontSize: 12, fontWeight: 600 }}>✓ ready</span>}
                         </td>
                       </tr>
                     ))}
@@ -174,9 +226,9 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
               <button style={S.ghostBtn2} onClick={() => setStep("input")}>← Back</button>
               <span style={{ display: "flex", gap: 10 }}>
                 <button style={S.ghostBtn2} onClick={onClose}>Cancel</button>
-                <button className="primaryBtn" style={{ ...S.primaryBtn, opacity: matched.length ? 1 : 0.5 }}
-                  disabled={!matched.length} onClick={apply}>
-                  Apply {matched.length} {target === "curr" ? "current" : "previous"} reading{matched.length !== 1 ? "s" : ""}
+                <button className="primaryBtn" style={{ ...S.primaryBtn, opacity: validRows.length ? 1 : 0.5 }}
+                  disabled={!validRows.length} onClick={apply}>
+                  Apply {validRows.length} {target === "curr" ? "current" : "previous"} reading{validRows.length !== 1 ? "s" : ""}
                 </button>
               </span>
             </div>
@@ -197,5 +249,6 @@ const M = {
   textarea: { width: "100%", padding: "12px 14px", border: `1px solid ${T.line}`, borderRadius: 10, fontSize: 14, fontFamily: mono, background: "#FAFBFE", color: T.ink, resize: "vertical", lineHeight: 1.5 },
   templateBtn: { background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", color: T.water, fontFamily: font },
   warn: { marginBottom: 12, background: "#FBF3E3", color: "#9A6B15", padding: "10px 14px", borderRadius: 9, fontSize: 13, lineHeight: 1.4 },
+  errBox: { marginBottom: 12, background: T.owedSoft || "#FEF2F2", color: T.owed || "#D94343", padding: "10px 14px", borderRadius: 9, fontSize: 13, lineHeight: 1.4 },
   foot: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 16 },
 };
