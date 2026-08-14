@@ -780,7 +780,24 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
 /* ============================ MAINTENANCE ============================ */
 function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setField, periodStart, periodEnd, onBackfill, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, mobile, config, bid }) {
   const update = (id, key, val) => setExpenses((xs) => xs.map((e) => e.id === id ? { ...e, [key]: val } : e));
-  const remove = (id) => setExpenses((xs) => xs.filter((e) => e.id !== id));
+  const remove = (id) => {
+    // If this expense was added by a special expense, revert the collection
+    if (id.startsWith("e_sp_")) {
+      const spId = id.replace("e_sp_", "");
+      const allSp = config?.specialExpenses || [];
+      const sp = allSp.find((s) => s.id === spId);
+      if (sp) {
+        const perMonth = Math.round(sp.amount / (sp.months || 1));
+        const newCollected = Math.max(0, (sp.collected || 0) - perMonth);
+        updateBuilding(bid, {
+          specialExpenses: allSp.map((s) => s.id === spId
+            ? { ...s, collected: newCollected, status: newCollected > 0 ? "collecting" : "pending", lastCollectedDate: null }
+            : s)
+        });
+      }
+    }
+    setExpenses((xs) => xs.filter((e) => e.id !== id));
+  };
   const add = () => setExpenses((xs) => [...xs, { id: "e" + Date.now(), item: "", amount: 0, paidBy: "fund" }]);
 
   return (
