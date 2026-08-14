@@ -1022,6 +1022,7 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                         onClick={() => setPayingFlat(null)}>✕</button>
                     </div>
                   ) : (
+                    <>
                     <button style={{ border: `1px solid ${T.money}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff", color: T.money,
                       borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}
                       onClick={(e) => { e.stopPropagation(); setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue || r.currentBill))); }}>
@@ -1031,6 +1032,7 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                       <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 11, textDecoration: "underline" }}
                         onClick={(e) => { e.stopPropagation(); undoLastPayment(r.flat); }}>undo</button>
                     )}
+                    </>
                   )}
                 </div>
               )}
