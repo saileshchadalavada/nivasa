@@ -58,6 +58,7 @@ export default function Dashboard({
   const [openFlat, setOpenFlat] = useState(null);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null); // { title, message, confirmLabel, confirmColor, onConfirm }
   const [publish, setPublish] = useState(null);
   const [themeId, _setTheme] = useState(getThemeId());
   const switchTheme = (id) => { setThemeId(id); applyTheme(id); _setTheme(id); document.body.style.background = T.bg; }; // "water" | "maint" | null
@@ -377,7 +378,7 @@ export default function Dashboard({
         {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} />}
         {tab === "history" && <History flat={meFlat} residential={residential} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} />}
         {tab === "community" && <Community bid={bid} activities={activities} membership={membership} members={members} config={config} admin={admin} mobile={mobile} />}
-        {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} />}
+        {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} onConfirm={(opts) => setConfirmModal(opts)} />}
       </main>
 
       {openFlat && (
@@ -402,6 +403,8 @@ export default function Dashboard({
           </div>
         </div>
       )}
+      {confirmModal && <ConfirmModal {...confirmModal} onCancel={() => setConfirmModal(null)} onConfirm={() => { confirmModal.onConfirm(); setConfirmModal(null); }} />}
+
       {!dirty && <footer style={{ ...S.footer, ...(mobile ? { paddingBottom: 70 } : {}) }}>Everyone sees updates the moment an editor saves.</footer>}
 
       {/* ===== MOBILE BOTTOM NAV ===== */}
@@ -1099,9 +1102,7 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
   };
 
   const removeEntry = (id) => {
-    if (window.confirm("Remove this corpus entry?")) {
-      save({ ledger: ledger.filter((e) => e.id !== id) });
-    }
+    save({ ledger: ledger.filter((e) => e.id !== id) });
   };
 
   return (
@@ -1412,6 +1413,27 @@ function PublishModal({ kind, text, poster, onDone, onClose }) {
             <button className="primaryBtn" style={S.primaryBtn} onClick={shareTextApp}>📱 WhatsApp App</button>
           </div>
         </>)}
+      </div>
+    </div>
+  );
+}
+
+
+/* ---- Reusable confirm modal (replaces window.confirm) ---- */
+function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, onCancel }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 70, padding: 16 }}
+      onClick={onCancel}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: "22px 24px", width: "min(400px, 92vw)", boxShadow: "0 12px 40px rgba(0,0,0,.2)" }}
+        onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontFamily: display, fontWeight: 700, fontSize: 17, marginBottom: 8 }}>{title || "Confirm"}</div>
+        <div style={{ fontSize: 14, color: T.inkSoft, lineHeight: 1.5, marginBottom: 20 }}>{message}</div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "9px 18px", fontWeight: 600, fontSize: 14, cursor: "pointer", fontFamily: font, color: T.inkSoft }}
+            onClick={onCancel}>Cancel</button>
+          <button style={{ background: confirmColor || T.owed, border: "none", borderRadius: 10, padding: "9px 18px", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: font, color: "#fff" }}
+            onClick={onConfirm}>{confirmLabel || "Confirm"}</button>
+        </div>
       </div>
     </div>
   );

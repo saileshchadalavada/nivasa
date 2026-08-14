@@ -3,7 +3,7 @@ import { setMemberRoles, adminAssignFlat, updateMembership, removeMember } from 
 import { styles as S, T, font } from "./styles";
 
 /* Admin-only: grant/revoke per-building roles, override a member's flat. */
-export default function Members({ bid, members, flats, config, onDeleteBuilding, onImportWater2026, canImportWater2026, mobile }) {
+export default function Members({ bid, members, flats, config, onDeleteBuilding, onImportWater2026, canImportWater2026, mobile, onConfirm }) {
   const flatOptions = flats.filter((f) => !f.isCommon).map((f) => f.flat).sort();
 
   const toggleRole = (u, role) => {
@@ -53,10 +53,12 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                 </div>
                 {!isFounder && (
                   <button style={{ border: "none", background: "none", color: T.owed, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: font, marginTop: 8, padding: 0 }}
-                    onClick={() => {
-                      if (window.confirm(`Remove ${u.username}? They will lose access.`))
-                        removeMember(bid, u.uid, u.flat || null);
-                    }}>Remove member</button>
+                    onClick={() => onConfirm && onConfirm({
+                      title: "Remove member?",
+                      message: `Remove ${u.username} from this building? They will lose access and their flat will be freed.`,
+                      confirmLabel: "Remove",
+                      onConfirm: () => removeMember(bid, u.uid, u.flat || null),
+                    })}>Remove member</button>
                 )}
               </div>
             );
@@ -116,10 +118,12 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                   <td style={{ ...S.td, textAlign: "center" }}>
                     {!isFounder && (
                       <button style={{ border: "none", background: "none", color: T.owed, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: font, opacity: 0.7 }}
-                        onClick={() => {
-                          if (window.confirm(`Remove ${u.username} from this building? They will lose access and their flat will be freed.`))
-                            removeMember(bid, u.uid, u.flat || null);
-                        }}>Remove</button>
+                        onClick={() => onConfirm && onConfirm({
+                          title: "Remove member?",
+                          message: `Remove ${u.username} from this building? They will lose access and their flat will be freed.`,
+                          confirmLabel: "Remove",
+                          onConfirm: () => removeMember(bid, u.uid, u.flat || null),
+                        })}>Remove</button>
                     )}
                   </td>
                 </tr>
