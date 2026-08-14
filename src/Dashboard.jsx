@@ -396,7 +396,7 @@ export default function Dashboard({
             onStartNext={onStartMaint} onDeletePeriod={onDeleteMaint} canDelete={canDeleteMaint}
             startReady={startReadyMaint} saving={saving} mobile={mobile} config={config} bid={bid} />
         )}
-        {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} />}
+        {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} config={config} />}
         {tab === "history" && <History flat={meFlat} residential={residential} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} />}
         {tab === "community" && <Community bid={bid} activities={activities} membership={membership} members={members} config={config} admin={admin} mobile={mobile} />}
         {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} onConfirm={(opts) => setConfirmModal(opts)} />}
@@ -404,7 +404,7 @@ export default function Dashboard({
 
       {openFlat && (
         <Drawer onClose={() => setOpenFlat(null)}>
-          <FlatStatement flat={openFlat} water={water} maint={maint} residential={residential} embedded />
+          <FlatStatement flat={openFlat} water={water} maint={maint} residential={residential} config={config} embedded />
         </Drawer>
       )}
 
@@ -1517,24 +1517,34 @@ function DateField({ label, value, onChange, readOnly }) {
 }
 
 /* ========================= FLAT STATEMENT ========================= */
-function FlatStatement({ flat, water, maint, residential, embedded }) {
+function FlatStatement({ flat, water, maint, residential, config, embedded }) {
   const w = water.rows.find((r) => r.flat === flat);
   const f = residential.find((x) => x.flat === flat);
   if (!w || !f) return <div style={{ color: T.muted }}>No statement for this flat yet.</div>;
-  const total = w.bill + maint.perFlat;
+  const corpus = maint.corpusMonthly || 0;
+  const total = w.bill + maint.perFlat + corpus;
   const owedBack = maint.byMember[flat] || 0;
-  const net = total - owedBack; // net position after crediting any fronted expenses
-  const Line = ({ label, val, sub, strong }) => (
+  const net = total - owedBack;
+
+  const allPayments = (config?.payments || []).filter((p) => p.flat === flat);
+  const totalPaid = allPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const prevOutstanding = Number((config?.outstanding || {})[flat] || 0);
+  const balance = Math.max(0, net + prevOutstanding - totalPaid);
+
+  const Line = ({ label, val, sub, strong, color }) => (
     <div style={{ ...S.stLine, ...(strong ? S.stLineStrong : {}) }}>
       <div><div>{label}</div>{sub && <div style={S.stSub}>{sub}</div>}</div>
-      <div style={{ ...S.num, fontWeight: strong ? 700 : 500 }}>{money(val)}</div>
+      <div style={{ ...S.num, fontWeight: strong ? 700 : 500, ...(color ? { color } : {}) }}>{typeof val === "string" ? val : money(val)}</div>
     </div>
   );
   return (
     <div style={embedded ? {} : S.stWrap}>
       <div style={S.stHead}>
         <div><div style={S.stFlat}>Flat {flat}</div><div style={S.stName}>{f.name || "—"}</div></div>
-        <div style={S.stTotalBox}><div style={S.stTotalLabel}>{net < 0 ? "Owed to you" : "Total due"}</div><div style={S.stTotal}>{money(Math.abs(net))}</div></div>
+        <div style={S.stTotalBox}>
+          <div style={S.stTotalLabel}>{balance <= 0 ? "✓ Paid" : "Balance due"}</div>
+          <div style={{ ...S.stTotal, color: balance <= 0 ? T.money : T.ink }}>{balance <= 0 ? "✓" : money(balance)}</div>
+        </div>
       </div>
       <div style={S.stGroup}>Water — {money(w.bill)}</div>
       {(w.itemShares || []).map((is) => (
@@ -1542,15 +1552,29 @@ function FlatStatement({ flat, water, maint, residential, embedded }) {
       ))}
       {w.adj !== 0 && <Line label="Adjustment" val={w.adj} />}
       <div style={S.stGroup}>Maintenance — {money(maint.perFlat)}</div>
-      <Line label="Common maintenance" sub={`${money(maint.total)} total ÷ ${residential.length}`} val={maint.perFlat} />
+      <Line label="Common maintenance" sub={money(maint.total) + " total ÷ " + residential.length} val={maint.perFlat} />
+      {corpus > 0 && <Line label="Corpus contribution" val={corpus} />}
       <Line label="Subtotal" val={total} />
       {owedBack > 0 && <Line label="Less: expenses you fronted" sub="reimbursed from the fund" val={-owedBack} />}
-      <Line label={net < 0 ? "Net — owed back to you" : "Net payable"} val={Math.abs(net)} strong />
-      {owedBack > 0 && <div style={S.stOwed}>You fronted <b>{money(owedBack)}</b> in adhoc expenses. {net < 0 ? `After your ${money(total)} share, the fund owes you ${money(Math.abs(net))}.` : `It's credited against your ${money(total)} share.`}</div>}
+      {prevOutstanding > 0 && <Line label="Outstanding from previous" val={prevOutstanding} color={T.owed} />}
+      <Line label="Total bill" val={net + prevOutstanding} strong />
+
+      {allPayments.length > 0 && (
+        <>
+          <div style={S.stGroup}>Payments</div>
+          {allPayments.map((p) => (
+            <Line key={p.id} label={"Paid " + (p.date || "") + (p.note ? " (" + p.note + ")" : "")} val={"-" + money(p.amount)} color={T.money} />
+          ))}
+          <Line label="Total paid" val={"-" + money(totalPaid)} color={T.money} />
+        </>
+      )}
+
+      <Line label={balance <= 0 ? "✓ Fully paid" : "Remaining balance"} val={balance <= 0 ? "₹0" : money(balance)} strong color={balance <= 0 ? T.money : T.owed} />
+
+      {owedBack > 0 && <div style={S.stOwed}>You fronted <b>{money(owedBack)}</b> in adhoc expenses. It's credited against your share.</div>}
     </div>
   );
 }
-
 /* ============================ small parts ============================ */
 function Card({ label, value, note, tone }) {
   const accent = tone === "water" ? T.water : tone === "money" ? T.money : tone === "owed" ? T.owed : T.ink;
