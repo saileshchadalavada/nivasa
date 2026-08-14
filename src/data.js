@@ -34,6 +34,15 @@ export async function ensureAccount(uid, username) {
   if (!s.exists()) await setDoc(userRef(uid), { username, buildings: [], createdAt: Date.now() });
 }
 
+/* SEC-01: allow the signed-in user to remove a stale building ID from their own
+   account. Safe because Firestore rules restrict /users/{u} updates to uid() == u
+   and only allow changes to the buildings field. */
+export function removeOwnBuildingReference(uid, bid) {
+  return updateDoc(userRef(uid), {
+    buildings: arrayRemove(bid),
+  });
+}
+
 /* ---- building config (public read) ---- */
 export const subscribeBuilding = (bid, cb) =>
   onSnapshot(bldRef(bid), (s) => cb(s.exists() ? { id: bid, ...s.data() } : null));
@@ -306,28 +315,22 @@ export function getPaymentsForFlat(payments, flat) {
 
 
 /* Remove a member from the building (admin only).
-   Clears their flat claim, removes member doc, removes building from their account. */
+   Deletes the membership doc and frees their flat claim.
+   The removed user's stale buildings array entry is cleaned up on their
+   next login via the self-heal effect in App.jsx (SEC-01). */
 export async function removeMember(bid, uid, flat) {
-  // Delete member doc + free flat in one batch
   const batch = writeBatch(db);
   batch.delete(memberRef(bid, uid));
   if (flat) batch.update(flatRef(bid, flat), { claimedByUid: null });
   await batch.commit();
-  // Separately try to remove building from user's account
-  // (may fail if Firestore rules only allow self-update — that's OK,
-  //  the user just won't see the building anymore since their member doc is gone)
-  try { await updateDoc(userRef(uid), { buildings: arrayRemove(bid) }); } catch {}
 }
 
-/* Admin-only: delete an entire building — every subcollection doc, the config,
-   and remove the building id from each member's account. */
-export async function deleteBuilding(bid) {
-  const cols = [flatsCol(bid), waterCol(bid), maintCol(bid), membersCol(bid), activitiesCol(bid)];
-  const memberSnap = await getDocs(membersCol(bid));
-  // detach the building from every member's account list
-  for (const m of memberSnap.docs) {
-    try { await updateDoc(userRef(m.id), { buildings: arrayRemove(bid) }); } catch {}
-  }
+/* Admin-only: delete an entire building — every subcollection doc and the
+   config document. The deleting admin's own account is cleaned up via
+   currentUid; other members' stale building references are pruned on
+   their next login via the self-heal effect in App.jsx (SEC-01). */
+export async function deleteBuilding(bid, currentUid) {
+  const cols = [flatsCol(bid), waterCol(bid), maintCol(bid), membersCol(bid), activitiesCol(bid), presetsCol(bid)];
   // delete all subcollection docs (batched)
   for (const c of cols) {
     const snap = await getDocs(c);
@@ -339,4 +342,10 @@ export async function deleteBuilding(bid) {
     if (n > 0) await batch.commit();
   }
   await deleteDoc(bldRef(bid));
+  // Clean the admin's own account reference (self-write, allowed by rules)
+  if (currentUid) {
+    await updateDoc(userRef(currentUid), {
+      buildings: arrayRemove(bid),
+    });
+  }
 }
