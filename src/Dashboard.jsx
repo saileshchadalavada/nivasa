@@ -3,7 +3,7 @@ import { money, money2, labelFromStart, fmtDate, daysBetween } from "./util";
 import { buildWaterSnapshot, buildMaintSnapshot } from "./snapshot";
 import { generateWaterPoster, generateMaintPoster, sharePoster, canvasToBlob } from "./poster";
 import { HISTORY, HISTORY_MONTHS } from "./historicalWater";
-import { publishPeriod, updateBuilding } from "./data";
+import { publishPeriod, updateBuilding, recordPayment } from "./data";
 import { isAdmin, canEditWater, canEditMaint } from "./seedData";
 import Members from "./Members";
 import History from "./History";
@@ -346,7 +346,7 @@ export default function Dashboard({
             waterPeriod={dw} maintPeriod={dm}
             residential={residential} canWater={canWater} canMaint={canMaint} admin={admin} config={config}
             togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint} openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile}
-            onBroadcast={() => setShowBroadcast(true)} />
+            onBroadcast={() => setShowBroadcast(true)} bid={bid} />
         )}
         {showBroadcast && (
           <Broadcast residential={residential} members={members} water={dispWater} maint={dispMaint}
@@ -436,7 +436,7 @@ function roleText(membership, admin, meFlat) {
 }
 
 /* ============================= OVERVIEW ============================= */
-function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile, onBroadcast }) {
+function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile, onBroadcast, bid }) {
   const billable = water.rows.reduce((s, r) => s + r.bill, 0) + maint.total;
   const collected = residential.reduce((s, f) => {
     const w = paidWater[f.flat] ? (water.rows.find((r) => r.flat === f.flat)?.bill || 0) : 0;
@@ -518,75 +518,12 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
       </div>
 
       <SectionTitle>Per-flat statement</SectionTitle>
-      {mobile ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {residential.map((f) => {
-            const w = water.rows.find((r) => r.flat === f.flat)?.bill || 0;
-            const owed = maint.byMember[f.flat] || 0;
-            const corpus = maint.corpusMonthly || 0;
-            const netDue = w + maint.perFlat + corpus - owed;
-            return (
-              <div key={f.flat} onClick={() => openFlat(f.flat)}
-                style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px", cursor: "pointer" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <div>
-                    <span style={{ fontFamily: display, fontWeight: 700, fontSize: 16 }}>{f.flat}</span>
-                    <span style={{ fontSize: 13, color: T.inkSoft, marginLeft: 8 }}>{f.name || ""}</span>
-                  </div>
-                  <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: netDue < 0 ? T.money : T.ink }}>
-                    {netDue < 0 ? `+${money(Math.abs(netDue))}` : money(netDue)}
-                  </span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: T.inkSoft, marginBottom: 8, flexWrap: "wrap", gap: 4 }}>
-                  <span>Water: <b style={{ color: T.ink }}>{money(w)}</b></span>
-                  <span>Maint: <b style={{ color: T.ink }}>{money(maint.perFlat)}</b>{owed > 0 && <span style={{ color: T.owed }}> −{money(owed)}</span>}</span>
-                  {corpus > 0 && <span>Corpus: <b style={{ color: T.ink }}>{money(corpus)}</b></span>}
-                </div>
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
-                    💧 <Paid on={!!paidWater[f.flat]} editable={canWater} onClick={(e) => { e.stopPropagation(); togglePaidWater(f.flat); }} />
-                  </span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
-                    🔧 <Paid on={!!paidMaint[f.flat]} editable={canMaint} onClick={(e) => { e.stopPropagation(); togglePaidMaint(f.flat); }} />
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div style={S.tableWrap}>
-        <table style={S.table}>
-          <thead><tr>
-            <th style={S.th}>Flat</th><th style={S.th}>Name</th>
-            <th style={{ ...S.th, textAlign: "right" }}>Water</th>
-            <th style={{ ...S.th, textAlign: "right" }}>Maint.</th>
-            <th style={{ ...S.th, textAlign: "right" }}>Total due</th>
-            <th style={{ ...S.th, textAlign: "center" }}>Water</th>
-            <th style={{ ...S.th, textAlign: "center" }}>Maint</th>
-          </tr></thead>
-          <tbody>
-            {residential.map((f) => {
-              const w = water.rows.find((r) => r.flat === f.flat)?.bill || 0;
-              const owed = maint.byMember[f.flat] || 0;
-              const corpus = maint.corpusMonthly || 0;
-              const netDue = w + maint.perFlat + corpus - owed;
-              return (
-                <tr key={f.flat} className="row" onClick={() => openFlat(f.flat)}>
-                  <td style={{ ...S.td, fontWeight: 600 }}>{f.flat}</td>
-                  <td style={S.td}>{f.name || "—"}</td>
-                  <td style={{ ...S.td, ...S.num }}>{money(w)}</td>
-                  <td style={{ ...S.td, ...S.num }}>{money(maint.perFlat)}{owed > 0 && <span style={{ color: T.owed, fontSize: 11 }}> −{money(owed)}</span>}</td>
-                  <td style={{ ...S.td, ...S.num, fontWeight: 700, color: netDue < 0 ? T.money : T.ink }}>{netDue < 0 ? `+${money(Math.abs(netDue))}` : money(netDue)}</td>
-                  <td style={{ ...S.td, textAlign: "center" }}><Paid on={!!paidWater[f.flat]} editable={canWater} onClick={(e) => { e.stopPropagation(); togglePaidWater(f.flat); }} /></td>
-                  <td style={{ ...S.td, textAlign: "center" }}><Paid on={!!paidMaint[f.flat]} editable={canMaint} onClick={(e) => { e.stopPropagation(); togglePaidMaint(f.flat); }} /></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        </div>
-      )}
+      <PerFlatPayments residential={residential} water={water} maint={maint}
+        config={config} bid={bid} admin={admin} canWater={canWater} canMaint={canMaint}
+        paidWater={paidWater} paidMaint={paidMaint} togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint}
+        openFlat={openFlat} mobile={mobile} />
+
+
 
       {Object.keys(maint.byMember).length > 0 && (
         <>
@@ -958,6 +895,162 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
   );
 }
 
+
+
+/* ---- Per-flat payment tracking with outstanding balances ---- */
+function PerFlatPayments({ residential, water, maint, config, bid, admin, canWater, canMaint,
+  paidWater, paidMaint, togglePaidWater, togglePaidMaint, openFlat, mobile }) {
+  const [payingFlat, setPayingFlat] = React.useState(null); // flat being paid
+  const [payAmt, setPayAmt] = React.useState("");
+  const [payNote, setPayNote] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  const outstanding = config?.outstanding || {};
+  const payments = config?.payments || [];
+  const corpus = maint.corpusMonthly || 0;
+
+  const doRecord = async (flat, totalDue) => {
+    const amount = Number(payAmt) || 0;
+    if (amount <= 0) return;
+    setSaving(true);
+    try {
+      const month = [water.rows[0]?.periodLabel, maint.periodLabel].filter(Boolean).join("/") || "current";
+      await recordPayment(bid, flat, amount, new Date().toISOString().slice(0, 10), payNote.trim(), month);
+      setPayingFlat(null); setPayAmt(""); setPayNote("");
+    } catch (e) { alert("Error: " + (e?.message || "unknown")); }
+    finally { setSaving(false); }
+  };
+
+  const rows = residential.map((f) => {
+    const w = water.rows.find((r) => r.flat === f.flat)?.bill || 0;
+    const owed = maint.byMember[f.flat] || 0;
+    const currentBill = w + maint.perFlat + corpus - owed;
+    const prevOutstanding = Number(outstanding[f.flat] || 0);
+    const totalDue = currentBill + prevOutstanding;
+    const recentPayments = payments.filter((p) => p.flat === f.flat).slice(-3);
+    return { ...f, w, owed, currentBill, prevOutstanding, totalDue, recentPayments };
+  });
+
+  const totalOutstanding = rows.reduce((s, r) => s + Math.max(0, r.totalDue), 0);
+  const totalPrevOutstanding = rows.reduce((s, r) => s + r.prevOutstanding, 0);
+
+  return (
+    <>
+      {totalPrevOutstanding > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px",
+          background: "#FDF2F0", border: "1px solid #F5D0C5", borderRadius: 10, marginBottom: 10, fontSize: 13.5 }}>
+          <span style={{ color: T.owed, fontWeight: 600 }}>Total outstanding from previous months</span>
+          <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: T.owed }}>{money(totalPrevOutstanding)}</span>
+        </div>
+      )}
+
+      {mobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {rows.map((r) => (
+            <div key={r.flat} style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px",
+              boxShadow: "0 1px 4px rgba(0,0,0,.04)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}
+                onClick={() => openFlat(r.flat)}>
+                <div>
+                  <span style={{ fontFamily: display, fontWeight: 700, fontSize: 16 }}>{r.flat}</span>
+                  <span style={{ fontSize: 13, color: T.inkSoft, marginLeft: 8 }}>{r.name || ""}</span>
+                </div>
+                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: r.totalDue <= 0 ? T.money : T.ink }}>
+                  {r.totalDue <= 0 ? "Paid" : money(r.totalDue)}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, fontSize: 12, color: T.inkSoft, marginBottom: 6 }}>
+                <span>Water: <b>{money(r.w)}</b></span>
+                <span>Maint: <b>{money(maint.perFlat)}</b></span>
+                {corpus > 0 && <span>Corpus: <b>{money(corpus)}</b></span>}
+                {r.prevOutstanding > 0 && <span style={{ color: T.owed }}>Previous: <b>{money(r.prevOutstanding)}</b></span>}
+              </div>
+              {(admin || canWater || canMaint) && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  {payingFlat === r.flat ? (
+                    <div style={{ display: "flex", gap: 6, flex: 1, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
+                      <input className="cell" type="number" style={{ ...S.cellInput, flex: "1 0 80px", fontSize: 14 }}
+                        value={payAmt} onChange={(e) => setPayAmt(e.target.value)}
+                        placeholder={String(Math.round(r.totalDue))} autoFocus />
+                      <input className="cell" style={{ ...S.cellInput, flex: "1 0 80px", textAlign: "left", fontSize: 13 }}
+                        value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="Note (UPI/Cash)" />
+                      <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "6px 12px", fontSize: 12 }}
+                        disabled={saving} onClick={() => doRecord(r.flat, r.totalDue)}>
+                        {saving ? "..." : "✓"}
+                      </button>
+                      <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 14 }}
+                        onClick={() => setPayingFlat(null)}>✕</button>
+                    </div>
+                  ) : (
+                    <button style={{ border: `1px solid ${T.money}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff", color: T.money,
+                      borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+                      onClick={(e) => { e.stopPropagation(); setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue))); }}>
+                      {r.totalDue <= 0 ? "✓ Paid" : "Record payment"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={S.tableWrap}>
+          <table style={S.table}>
+            <thead><tr>
+              <th style={S.th}>Flat</th>
+              <th style={S.th}>Name</th>
+              <th style={{ ...S.th, textAlign: "right" }}>This month</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Outstanding</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Total due</th>
+              <th style={{ ...S.th, textAlign: "center" }}>Payment</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.flat} className="row">
+                  <td style={{ ...S.td, fontWeight: 600, cursor: "pointer" }} onClick={() => openFlat(r.flat)}>{r.flat}</td>
+                  <td style={{ ...S.td, cursor: "pointer" }} onClick={() => openFlat(r.flat)}>{r.name || "—"}</td>
+                  <td style={{ ...S.td, ...S.num }}>{money(r.currentBill)}</td>
+                  <td style={{ ...S.td, ...S.num, color: r.prevOutstanding > 0 ? T.owed : T.muted }}>{r.prevOutstanding > 0 ? money(r.prevOutstanding) : "—"}</td>
+                  <td style={{ ...S.td, ...S.num, fontWeight: 700, color: r.totalDue <= 0 ? T.money : T.ink }}>
+                    {r.totalDue <= 0 ? "✓ Paid" : money(r.totalDue)}
+                  </td>
+                  <td style={{ ...S.td, textAlign: "center", padding: "4px 8px" }}>
+                    {(admin || canWater || canMaint) ? (
+                      payingFlat === r.flat ? (
+                        <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+                          <input className="cell" type="number" style={{ ...S.cellInput, width: 90, fontSize: 13 }}
+                            value={payAmt} onChange={(e) => setPayAmt(e.target.value)}
+                            placeholder={String(Math.round(r.totalDue))} autoFocus />
+                          <input className="cell" style={{ ...S.cellInput, width: 80, textAlign: "left", fontSize: 12 }}
+                            value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="Note" />
+                          <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "5px 10px", fontSize: 12 }}
+                            disabled={saving} onClick={() => doRecord(r.flat, r.totalDue)}>{saving ? "..." : "✓"}</button>
+                          <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer" }}
+                            onClick={() => setPayingFlat(null)}>✕</button>
+                        </span>
+                      ) : (
+                        <button style={{ border: `1px solid ${r.totalDue <= 0 ? T.money : T.line}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff",
+                          color: r.totalDue <= 0 ? T.money : T.water, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                          cursor: "pointer", fontFamily: font }}
+                          onClick={() => { setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue))); }}>
+                          {r.totalDue <= 0 ? "✓ Paid" : "Record"}
+                        </button>
+                      )
+                    ) : (
+                      <span style={{ fontSize: 12, color: r.totalDue <= 0 ? T.money : T.muted }}>
+                        {r.totalDue <= 0 ? "✓" : "Pending"}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
 
 /* ---- Corpus Fund section ---- */
 function CorpusFund({ config, bid, canEdit, nRes, mobile }) {

@@ -257,6 +257,53 @@ export const deleteActivity = (bid, id) => deleteDoc(activityRef(bid, id));
 export const voteOnPoll = (bid, id, flat, optionIdx) =>
   updateDoc(activityRef(bid, id), { [`poll.votes.${flat}`]: optionIdx });
 
+
+/* ---- Per-flat payment tracking ---- */
+/* Record a payment for a flat. Updates outstanding balance on the building doc.
+   payments stored as: buildings/{bid}.payments = [ { id, flat, amount, date, note, month } ] */
+export async function recordPayment(bid, flat, amount, date, note, month) {
+  const snap = await getDoc(bldRef(bid));
+  const data = snap.exists() ? snap.data() : {};
+  const payments = data.payments || [];
+  const outstanding = data.outstanding || {};
+  const entry = {
+    id: "pay_" + Math.random().toString(36).slice(2, 8),
+    flat, amount: Number(amount), date, note: note || "", month: month || "",
+    createdAt: Date.now(),
+  };
+  // Reduce outstanding for this flat
+  const prev = Number(outstanding[flat] || 0);
+  const newBal = Math.max(0, prev - Number(amount));
+  await updateDoc(bldRef(bid), {
+    payments: [...payments, entry],
+    [`outstanding.${flat}`]: newBal,
+  });
+}
+
+/* Set the bill amount for a flat (adds to outstanding). Called when bills are finalized. */
+export async function addToOutstanding(bid, flat, amount) {
+  const snap = await getDoc(bldRef(bid));
+  const data = snap.exists() ? snap.data() : {};
+  const prev = Number((data.outstanding || {})[flat] || 0);
+  await updateDoc(bldRef(bid), { [`outstanding.${flat}`]: prev + Number(amount) });
+}
+
+/* Bulk set outstanding for all flats (used when finalizing a period) */
+export async function bulkAddOutstanding(bid, bills) {
+  const snap = await getDoc(bldRef(bid));
+  const data = snap.exists() ? snap.data() : {};
+  const outstanding = { ...(data.outstanding || {}) };
+  Object.entries(bills).forEach(([flat, amount]) => {
+    outstanding[flat] = Number(outstanding[flat] || 0) + Number(amount);
+  });
+  await updateDoc(bldRef(bid), { outstanding });
+}
+
+/* Get payment history for a flat */
+export function getPaymentsForFlat(payments, flat) {
+  return (payments || []).filter((p) => p.flat === flat).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
 /* Admin-only: delete an entire building — every subcollection doc, the config,
    and remove the building id from each member's account. */
 export async function deleteBuilding(bid) {
