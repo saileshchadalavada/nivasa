@@ -53,7 +53,7 @@ export default function Broadcast({ residential, members, water, maint, waterPer
     navigator.clipboard.writeText(allMessages).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {});
+    }).catch((e) => console.error("Clipboard copy failed:", e));
   };
 
   const openWhatsApp = (phone, msg) => {
@@ -106,7 +106,7 @@ export default function Broadcast({ residential, members, water, maint, waterPer
                   {r.phone ? "💬 Send WhatsApp" : "💬 WhatsApp (no number)"}
                 </button>
                 <button style={B.copyBtn} onClick={() => {
-                  navigator.clipboard.writeText(r.msg).catch(() => {});
+                  navigator.clipboard.writeText(r.msg).catch((e) => console.error("Copy failed:", e));
                 }}>Copy</button>
               </div>
             </div>

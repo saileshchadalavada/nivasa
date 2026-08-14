@@ -127,7 +127,7 @@ export default function Dashboard({
     try { await publishPeriod(bid, coll, id, uid); } catch (e) { console.error("Publish failed:", e); }
   };
   const snapshotText = (kind) => kind === "water"
-    ? buildWaterSnapshot({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), startIso: waterStart, endIso: waterEnd, rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
+    ? buildWaterSnapshot({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), startIso: waterStart, endIso: waterEnd, rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, residentialBillTotal: water.residentialBillTotal, commonLiability: water.commonLiability, costItems: water.costItems })
     : buildMaintSnapshot({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), startIso: maintStart, endIso: maintEnd, expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, nRes, byMember: maint.byMember });
 
   const snapshotPoster = (kind) => kind === "water"

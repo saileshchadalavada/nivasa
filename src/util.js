@@ -30,3 +30,15 @@ export const daysBetween = (startIso, endIso) => {
   const diff = Math.round((e - s) / (1000 * 60 * 60 * 24));
   return diff >= 0 ? diff + 1 : null;
 };
+
+/* FUNC-05: normalize any timestamp shape to milliseconds.
+   Handles: numeric ms (Date.now()), Firestore Timestamp (.toMillis()),
+   Date objects, and ISO strings. Returns NaN for unrecognized shapes. */
+export const toMillis = (ts) => {
+  if (ts == null) return NaN;
+  if (typeof ts === "number") return ts;
+  if (typeof ts.toMillis === "function") return ts.toMillis();
+  if (ts instanceof Date) return ts.getTime();
+  if (typeof ts === "string") { const ms = Date.parse(ts); return isNaN(ms) ? NaN : ms; }
+  return NaN;
+};

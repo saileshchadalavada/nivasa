@@ -110,7 +110,7 @@ export default function CsvUpload({ existingFlats, onApply, onClose }) {
   const apply = () => {
     const map = {};
     validRows.forEach((r) => {
-      if (r.value > 0) map[r.flat] = r.value;
+      if (r.value >= 0) map[r.flat] = r.value;
     });
     onApply(map, target);
     onClose();

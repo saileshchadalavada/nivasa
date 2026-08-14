@@ -16,7 +16,7 @@ function waterCaption(delta) {
   return `💧 Usage rose ${delta}%. A few mindful habits can bring it back down!`;
 }
 
-export function buildWaterSnapshot({ name, label, start, end, startIso, endIso, rows, prevCons, grandTotal, costItems }) {
+export function buildWaterSnapshot({ name, label, start, end, startIso, endIso, rows, prevCons, grandTotal, residentialBillTotal, commonLiability, costItems }) {
   const all = rows || [];
   const res = all.filter((r) => !r.isCommon);
   const common = all.find((r) => r.isCommon);
@@ -36,6 +36,7 @@ export function buildWaterSnapshot({ name, label, start, end, startIso, endIso, 
     "",
     ...costLines,
     `*Grand total:* ${money(grandTotal)}`,
+    ...(commonLiability > 0 ? [`*Resident collectible:* ${money(residentialBillTotal)}  ·  *Common (association):* ${money(commonLiability)}`] : []),
     "",
   ];
 
