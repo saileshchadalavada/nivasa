@@ -1217,100 +1217,162 @@ function CorpusFund({ config, bid, canEdit, nRes, mobile }) {
 
 /* ---- Special / Ad-hoc Expenses (not tied to a month) ---- */
 function SpecialExpenses({ config, bid, canEdit, expenses, setExpenses }) {
-  const items = config?.specialExpenses || [];
+  const items = (config?.specialExpenses || []).filter((i) => i.status !== "completed");
   const [adding, setAdding] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const [amount, setAmount] = React.useState("");
+  const [months, setMonths] = React.useState("1");
 
-  const save = (list) => {
-    updateBuilding(bid, { specialExpenses: list });
-  };
+  const allItems = config?.specialExpenses || [];
+  const save = (list) => { updateBuilding(bid, { specialExpenses: list }); };
 
   const addItem = () => {
     if (!title.trim() || !Number(amount)) return;
-    const entry = { id: "sp_" + Math.random().toString(36).slice(2, 8), title: title.trim(), amount: Number(amount), status: "pending", date: new Date().toISOString().slice(0, 10) };
-    save([...items, entry]);
-    setTitle(""); setAmount(""); setAdding(false);
+    const entry = {
+      id: "sp_" + Math.random().toString(36).slice(2, 8),
+      title: title.trim(), amount: Number(amount),
+      months: Math.max(1, parseInt(months) || 1),
+      collected: 0, status: "pending",
+      date: new Date().toISOString().slice(0, 10),
+    };
+    save([...allItems, entry]);
+    setTitle(""); setAmount(""); setMonths("1"); setAdding(false);
   };
 
   const addToMaintenance = (item) => {
-    // Add as a non-recurring expense in the current maintenance period
-    const newExp = { id: "e_" + Math.random().toString(36).slice(2, 8), item: item.title, amount: item.amount, paidBy: "fund", recurring: false };
+    const perMonth = Math.round(item.amount / item.months);
+    const isMultiMonth = item.months > 1;
+    const newExp = {
+      id: "e_" + Math.random().toString(36).slice(2, 8),
+      item: item.title + (isMultiMonth ? ` (${money(perMonth)}/month × ${item.months} months)` : ""),
+      amount: perMonth,
+      paidBy: "fund",
+      recurring: isMultiMonth, // multi-month = recurring
+    };
     setExpenses([...expenses, newExp]);
-    // Mark as funded
-    save(items.map((i) => i.id === item.id ? { ...i, status: "maintenance" } : i));
+    const newCollected = (item.collected || 0) + perMonth;
+    const done = newCollected >= item.amount;
+    save(allItems.map((i) => i.id === item.id
+      ? { ...i, status: done ? "completed" : "collecting", collected: newCollected }
+      : i));
   };
 
   const payFromCorpus = (item) => {
-    // Add withdrawal to corpus ledger
     const corpus = config?.corpus || { monthly: 0, openingBalance: 0, ledger: [] };
-    const withdrawal = { id: "c_" + Math.random().toString(36).slice(2, 8), type: "withdrawal", amount: item.amount, description: item.title, date: new Date().toISOString().slice(0, 10) };
+    const withdrawal = {
+      id: "c_" + Math.random().toString(36).slice(2, 8),
+      type: "withdrawal", amount: item.amount,
+      description: item.title,
+      date: new Date().toISOString().slice(0, 10),
+    };
     updateBuilding(bid, { corpus: { ...corpus, ledger: [...(corpus.ledger || []), withdrawal] } });
-    // Mark as funded
-    save(items.map((i) => i.id === item.id ? { ...i, status: "corpus" } : i));
+    save(allItems.map((i) => i.id === item.id ? { ...i, status: "completed", collected: item.amount } : i));
   };
 
-  const removeItem = (id) => {
-    save(items.filter((i) => i.id !== id));
+  const markComplete = (id) => {
+    save(allItems.map((i) => i.id === id ? { ...i, status: "completed" } : i));
   };
+
+  const removeItem = (id) => { save(allItems.filter((i) => i.id !== id)); };
 
   if (!canEdit && items.length === 0) return null;
 
   return (
     <>
       <SectionTitle>Special Expenses</SectionTitle>
-      <p style={{ fontSize: 12.5, color: T.muted, margin: "-4px 0 10px" }}>One-time expenses not tied to any month (e.g. new water connection, rain water harvesting)</p>
+      <p style={{ fontSize: 12.5, color: T.muted, margin: "-4px 0 10px" }}>
+        One-time expenses not tied to any month. Collect through maintenance or pay from corpus.
+      </p>
 
       {items.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
-          {items.map((item) => (
-            <div key={item.id} style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8,
-              background: item.status === "pending" ? T.surface : item.status === "corpus" ? "#F0FAF4" : "#EEF4FF",
-              border: `1px solid ${item.status === "pending" ? T.line : item.status === "corpus" ? T.money : T.water}`,
-              borderRadius: 10, padding: "10px 14px",
-            }}>
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{item.title}</div>
-                <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
-                  {item.date}
-                  {item.status === "maintenance" && " · Added to maintenance"}
-                  {item.status === "corpus" && " · Paid from corpus"}
+          {items.map((item) => {
+            const perMonth = Math.round(item.amount / (item.months || 1));
+            const pct = item.amount > 0 ? Math.min(100, Math.round(((item.collected || 0) / item.amount) * 100)) : 0;
+            return (
+              <div key={item.id} style={{
+                background: item.status === "pending" ? T.surface : item.status === "collecting" ? "#EEF4FF" : "#F0FAF4",
+                border: `1px solid ${item.status === "pending" ? T.line : item.status === "collecting" ? T.water : T.money}`,
+                borderRadius: 10, padding: "10px 14px",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{item.title}</div>
+                    <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
+                      {item.date}
+                      {(item.months || 1) > 1 && ` · ${money(perMonth)}/month × ${item.months} months`}
+                    </div>
+                  </div>
+                  <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 15 }}>{money(item.amount)}</span>
                 </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 15 }}>{money(item.amount)}</span>
-                {item.status === "pending" && canEdit && (
-                  <>
-                    <button style={{ border: `1px solid ${T.water}`, background: "#fff", color: T.water, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}
-                      onClick={() => addToMaintenance(item)}>+ Maintenance</button>
-                    <button style={{ border: `1px solid ${T.money}`, background: "#fff", color: T.money, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}
-                      onClick={() => payFromCorpus(item)}>Corpus</button>
-                  </>
+
+                {item.status === "collecting" && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.inkSoft, marginBottom: 4 }}>
+                      <span>Collected: {money(item.collected || 0)}</span>
+                      <span>{pct}%</span>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 3, background: "#E2E8F0" }}>
+                      <div style={{ height: "100%", borderRadius: 3, background: T.water, width: pct + "%", transition: "width 0.3s" }} />
+                    </div>
+                  </div>
                 )}
-                {canEdit && <button className="del" style={S.del} onClick={() => removeItem(item.id)}>✕</button>}
+
+                {canEdit && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {item.status === "pending" && (
+                      <>
+                        <button style={{ border: `1px solid ${T.water}`, background: "#fff", color: T.water, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+                          onClick={() => addToMaintenance(item)}>
+                          {(item.months || 1) > 1 ? `+ Add ${money(perMonth)} to maintenance` : "+ Add to maintenance"}
+                        </button>
+                        <button style={{ border: `1px solid ${T.money}`, background: "#fff", color: T.money, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+                          onClick={() => payFromCorpus(item)}>Pay from corpus</button>
+                      </>
+                    )}
+                    {item.status === "collecting" && (
+                      <>
+                        <button style={{ border: `1px solid ${T.water}`, background: "#fff", color: T.water, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+                          onClick={() => addToMaintenance(item)}>+ Collect next {money(perMonth)}</button>
+                        <button style={{ border: `1px solid ${T.money}`, background: "#fff", color: T.muted, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+                          onClick={() => markComplete(item.id)}>Mark complete</button>
+                      </>
+                    )}
+                    <button className="del" style={S.del} onClick={() => removeItem(item.id)}>✕</button>
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {adding && (
         <div style={{ background: "#FAFBFE", border: `1.5px solid ${T.water}`, borderRadius: 12, padding: "14px 16px", marginBottom: 10 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <label style={{ flex: "2 1 200px" }}>
+            <label style={{ flex: "2 1 180px" }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: T.ink, display: "block", marginBottom: 4 }}>What is it for?</span>
               <input className="cell" style={{ ...S.cellInput, width: "100%", textAlign: "left" }} value={title}
-                onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Rain water harvesting pit" autoFocus />
+                onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Rain water harvesting" autoFocus />
             </label>
-            <label style={{ flex: "0 0 140px" }}>
+            <label style={{ flex: "0 0 120px" }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: T.ink, display: "block", marginBottom: 4 }}>Total cost</span>
               <input className="cell" type="number" style={{ ...S.cellInput, width: "100%" }} value={amount}
                 onChange={(e) => setAmount(e.target.value)} placeholder="0" />
             </label>
+            <label style={{ flex: "0 0 100px" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.ink, display: "block", marginBottom: 4 }}>Months</span>
+              <input className="cell" type="number" style={{ ...S.cellInput, width: "100%" }} value={months}
+                onChange={(e) => setMonths(e.target.value)} placeholder="1" min="1" />
+            </label>
           </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button style={S.ghostBtn2} onClick={() => { setAdding(false); setTitle(""); setAmount(""); }}>Cancel</button>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>
+            {Number(amount) > 0 && parseInt(months) > 1
+              ? `${money(Math.round(Number(amount) / parseInt(months)))}/month added to maintenance for ${months} months`
+              : Number(amount) > 0 ? `Full amount added to one maintenance period` : ""}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button style={S.ghostBtn2} onClick={() => { setAdding(false); setTitle(""); setAmount(""); setMonths("1"); }}>Cancel</button>
             <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "8px 20px", opacity: title.trim() && Number(amount) > 0 ? 1 : 0.5 }}
               disabled={!title.trim() || !Number(amount)} onClick={addItem}>Add expense</button>
           </div>
@@ -1323,6 +1385,7 @@ function SpecialExpenses({ config, bid, canEdit, expenses, setExpenses }) {
     </>
   );
 }
+
 
 /* ===================== shared period controls ===================== */
 function PeriodControls({ kind, periodStart, periodEnd, setField, onBackfill, periods, selId, onSelect, isLatest, canEdit, onStartNext, onDeletePeriod, canDelete, startReady, saving }) {
