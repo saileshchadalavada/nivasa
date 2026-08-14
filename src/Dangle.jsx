@@ -77,11 +77,11 @@ export default function Dangle({ type = "nimbu" }) {
     p.running = true;
     const step = () => {
       if (!p.running) return;
-      const gravity = -0.0025 * Math.sin(p.angle * Math.PI / 180);
+      const gravity = -0.005 * Math.sin(p.angle * Math.PI / 180);
       p.velocity += gravity * 60;
-      p.velocity *= 0.975; // damping
+      p.velocity *= 0.985; // lighter damping for smoother swing
       p.angle += p.velocity;
-      if (Math.abs(p.velocity) < 0.03 && Math.abs(p.angle) < 0.3) {
+      if (Math.abs(p.velocity) < 0.05 && Math.abs(p.angle) < 0.5) {
         p.angle = 0; p.velocity = 0; p.running = false;
         setAngle(0);
         return;
@@ -114,16 +114,21 @@ export default function Dangle({ type = "nimbu" }) {
     isDragging.current = true;
     const x = e.touches ? e.touches[0].clientX : e.clientX;
     dragRef.current = { startX: x, lastX: x, lastT: Date.now(), moved: false };
-    // Stop physics while touching
-    physRef.current.running = false;
-    if (animRef.current) cancelAnimationFrame(animRef.current);
+    // Don't stop physics yet — only stop when actual drag is detected
   }, []);
 
   const onPointerMove = useCallback((e) => {
     if (!isDragging.current) return;
     const x = e.touches ? e.touches[0].clientX : e.clientX;
     const dx = x - dragRef.current.startX;
-    if (Math.abs(dx) > 3) dragRef.current.moved = true;
+    if (Math.abs(dx) > 3) {
+      if (!dragRef.current.moved) {
+        // First move — now stop physics for dragging
+        physRef.current.running = false;
+        if (animRef.current) cancelAnimationFrame(animRef.current);
+      }
+      dragRef.current.moved = true;
+    }
     const newAngle = Math.max(-50, Math.min(50, dx * 0.5));
     physRef.current.angle = newAngle;
     setAngle(newAngle);
@@ -142,7 +147,7 @@ export default function Dangle({ type = "nimbu" }) {
       physRef.current.velocity = Math.max(-12, Math.min(12, (dx / dt) * 6));
     } else {
       // Was a tap — random flick
-      physRef.current.velocity = (5 + Math.random() * 5) * (Math.random() < 0.5 ? 1 : -1);
+      physRef.current.velocity = (3 + Math.random() * 3) * (Math.random() < 0.5 ? 1 : -1);
     }
     playSound(type);
     if (type === "coin") {
