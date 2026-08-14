@@ -62,18 +62,19 @@ export function buildWaterSnapshot({ name, label, start, end, startIso, endIso, 
   return lines.join("\n");
 }
 
-export function buildMaintSnapshot({ name, label, start, end, startIso, endIso, expenses, total, perFlat, byMember }) {
+export function buildMaintSnapshot({ name, label, start, end, startIso, endIso, expenses, total, perFlat, nRes, byMember }) {
   const items = (expenses || []).filter((e) => Number(e.amount) > 0);
   const owed = Object.entries(byMember || {});
   const days = daysBetween(startIso, endIso);
   const tbl = items.map((e) => `${pad(e.item || "—", 26)}${padL(money(e.amount), 9)}`);
+  const flatCount = nRes || "?";
   return [
     `🧰 *${name} — Maintenance*`,
     `*${label}*  ·  ${start} → ${end}${days != null ? `  (${days} days)` : ""}`,
     "",
     "```" + tbl.join("\n") + "```",
     "",
-    `*Total:* ${money(total)}  ·  *Per flat:* ${money(perFlat)} (÷15)`,
+    `*Total:* ${money(total)}  ·  *Per flat:* ${money(perFlat)} (÷${flatCount})`,
     ...(owed.length ? ["", "*Owed back to members:*", ...owed.map(([f, a]) => `• Flat ${f}: ${money(a)}`)] : []),
     "",
     "_Itemised details in the Nivasa app._",

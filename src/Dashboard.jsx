@@ -160,15 +160,19 @@ export default function Dashboard({
   const setExpenses = (fn) => patchMaint((m) => ({ ...m, expenses: fn(m.expenses || []) }));
 
   const prevWaterCons = useMemo(() => {
-    // try real closed periods first
-    const prev = [...pastWater].filter((p) => p.periodEnd).sort((a, b) => (a.periodEnd || "").localeCompare(b.periodEnd || "")).pop();
+    // FUNC-01: select the period whose periodEnd is strictly before the current periodStart
+    const curStart = waterMonth.periodStart || "";
+    // try real closed periods first — filtered to those ending before the selected period
+    const prev = [...pastWater]
+      .filter((p) => p.periodEnd && (!curStart || p.periodEnd < curStart))
+      .sort((a, b) => (a.periodEnd || "").localeCompare(b.periodEnd || ""))
+      .pop();
     if (prev) {
       const map = {};
       Object.entries(prev.readings || {}).forEach(([flat, r]) => { map[flat] = Math.max(0, (r.curr || 0) - (r.prev || 0)); });
       return map;
     }
     // fallback: baked-in history (if available) — find the month just before the current period
-    const curStart = waterMonth.periodStart || "";
     const curKey = curStart.slice(0, 7);
     const prevKey = (HISTORY_MONTHS || []).filter((k) => k < curKey).pop();
     if (prevKey && HISTORY && HISTORY[prevKey]) {
@@ -186,7 +190,7 @@ export default function Dashboard({
   };
   const snapshotText = (kind) => kind === "water"
     ? buildWaterSnapshot({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), startIso: waterStart, endIso: waterEnd, rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
-    : buildMaintSnapshot({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), startIso: maintStart, endIso: maintEnd, expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, byMember: maint.byMember });
+    : buildMaintSnapshot({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), startIso: maintStart, endIso: maintEnd, expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, nRes, byMember: maint.byMember });
 
   const snapshotPoster = (kind) => kind === "water"
     ? generateWaterPoster({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), startIso: waterStart, endIso: waterEnd, rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
