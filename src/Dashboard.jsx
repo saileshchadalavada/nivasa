@@ -462,15 +462,28 @@ function roleText(membership, admin, meFlat) {
 
 /* ============================= OVERVIEW ============================= */
 function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile, onBroadcast, bid }) {
+  const payments = config?.payments || [];
+  const outstanding = config?.outstanding || {};
+  const corpus = maint.corpusMonthly || 0;
   const billable = water.rows.reduce((s, r) => s + r.bill, 0) + maint.total;
-  const collected = residential.reduce((s, f) => {
-    const w = paidWater[f.flat] ? (water.rows.find((r) => r.flat === f.flat)?.bill || 0) : 0;
-    const m = paidMaint[f.flat] ? maint.perFlat : 0;
-    return s + w + m;
-  }, 0);
+
+  // Payment-based status: compute per-flat due using recorded payments
+  const flatDue = (flat) => {
+    const w = water.rows.find((r) => r.flat === flat)?.bill || 0;
+    const owed = maint.byMember[flat] || 0;
+    const bill = w + maint.perFlat + corpus - owed;
+    const prev = Number(outstanding[flat] || 0);
+    const paid = payments.filter((p) => p.flat === flat).reduce((s, p) => s + Number(p.amount || 0), 0);
+    return Math.max(0, bill + prev - paid);
+  };
+  const collected = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const statusOf = (flat) => {
-    const w = !!paidWater[flat], m = !!paidMaint[flat];
-    return w && m ? "paid" : (!w && !m ? "unpaid" : "partial");
+    const due = flatDue(flat);
+    const bill = (water.rows.find((r) => r.flat === flat)?.bill || 0) + maint.perFlat + corpus;
+    const paid = payments.filter((p) => p.flat === flat).reduce((s, p) => s + Number(p.amount || 0), 0);
+    if (due <= 0) return "paid";
+    if (paid > 0) return "partial";
+    return "unpaid";
   };
   const counts = residential.reduce((a, f) => { a[statusOf(f.flat)]++; return a; }, { paid: 0, partial: 0, unpaid: 0 });
   const tileBg = { paid: T.money, partial: T.partial, unpaid: T.unpaid };
@@ -938,6 +951,14 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
     finally { setSaving(false); }
   };
 
+  const undoLastPayment = async (flat) => {
+    const flatPays = payments.filter((p) => p.flat === flat);
+    if (!flatPays.length) return;
+    const last = flatPays[flatPays.length - 1];
+    const updated = payments.filter((p) => p.id !== last.id);
+    await updateBuilding(bid, { payments: updated });
+  };
+
   const rows = residential.map((f) => {
     const w = water.rows.find((r) => r.flat === f.flat)?.bill || 0;
     const owed = maint.byMember[f.flat] || 0;
@@ -1003,9 +1024,13 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                   ) : (
                     <button style={{ border: `1px solid ${T.money}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff", color: T.money,
                       borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}
-                      onClick={(e) => { e.stopPropagation(); setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue))); }}>
+                      onClick={(e) => { e.stopPropagation(); setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue || r.currentBill))); }}>
                       {r.totalDue <= 0 ? "✓ Paid" : "Record payment"}
                     </button>
+                    {r.totalPaid > 0 && (
+                      <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 11, textDecoration: "underline" }}
+                        onClick={(e) => { e.stopPropagation(); undoLastPayment(r.flat); }}>undo</button>
+                    )}
                   )}
                 </div>
               )}
@@ -1048,12 +1073,18 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                             onClick={() => setPayingFlat(null)}>✕</button>
                         </span>
                       ) : (
-                        <button style={{ border: `1px solid ${r.totalDue <= 0 ? T.money : T.line}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff",
-                          color: r.totalDue <= 0 ? T.money : T.water, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                          cursor: "pointer", fontFamily: font }}
-                          onClick={() => { setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue))); }}>
-                          {r.totalDue <= 0 ? "✓ Paid" : "Record"}
-                        </button>
+                        <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                          <button style={{ border: `1px solid ${r.totalDue <= 0 ? T.money : T.line}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff",
+                            color: r.totalDue <= 0 ? T.money : T.water, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                            cursor: "pointer", fontFamily: font }}
+                            onClick={() => { setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue || r.currentBill))); }}>
+                            {r.totalDue <= 0 ? "✓ Paid" : "Record"}
+                          </button>
+                          {r.totalPaid > 0 && (
+                            <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 11, textDecoration: "underline" }}
+                              onClick={() => undoLastPayment(r.flat)} title="Undo last payment">undo</button>
+                          )}
+                        </span>
                       )
                     ) : (
                       <span style={{ fontSize: 12, color: r.totalDue <= 0 ? T.money : T.muted }}>
