@@ -7,8 +7,6 @@ import { publishPeriod, updateBuilding, recordPayment } from "./data";
 import { isAdmin, canEditWater, canEditMaint } from "./seedData";
 import Members from "./Members";
 import History from "./History";
-import MeterScan from "./MeterScan";
-import MeterCapture from "./MeterCapture";
 import CsvUpload from "./CsvUpload";
 import Broadcast from "./Broadcast";
 import Community from "./Community";
@@ -571,9 +569,7 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
 function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodEnd, costItems, onSetCostItems, onSetMeter, onBackfill, showAdj, onToggleAdj, periods, selId, onSelect, isLatest, onPublish, publishedAt, onStartNext, onDeletePeriod, canDelete, startReady, saving, flats, mobile }) {
   const anyAdj = water.rows.some((r) => r.adj);
   const adjOn = showAdj || anyAdj;
-  const [showScan, setShowScan] = useState(false);
   const [showCsv, setShowCsv] = useState(false);
-  const [capFlat, setCapFlat] = useState(null); // {flat, meter} being captured
 
   // Cost items editor helpers
   const addCostItem = () => {
@@ -589,16 +585,8 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
 
   return (
     <>
-      {capFlat && (
-        <MeterCapture flat={capFlat.flat} expectedMeter={capFlat.meter}
-          onApply={(val) => setReading(capFlat.flat, "curr", String(val))}
-          onClose={() => setCapFlat(null)} />
-      )}
-      {showScan && (
-        <MeterScan meters={water.rows.map((r) => ({ flat: r.flat, meter: r.meter }))}
-          onApply={(map) => Object.entries(map).forEach(([flat, val]) => setReading(flat, "curr", String(val)))}
-          onClose={() => setShowScan(false)} />
-      )}
+
+
       {showCsv && (
         <CsvUpload existingFlats={flats}
           onApply={(map, target) => Object.entries(map).forEach(([flat, val]) => setReading(flat, target || "curr", String(val)))}
@@ -672,7 +660,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
             <input type="checkbox" checked={adjOn} disabled={anyAdj} onChange={onToggleAdj} title={anyAdj ? "Shown because an adjustment is set" : "Show the per-flat adjustment column"} /> Adjustment column
           </label>}
           {canEdit && <button className="add" style={{ ...S.addBtn, ...(mobile ? { marginTop: 0, padding: "8px 12px", fontSize: 12.5 } : {}) }} onClick={() => setShowCsv(true)}>📄 Upload CSV</button>}
-          {canEdit && <button className="add" style={{ ...S.addBtn, ...(mobile ? { marginTop: 0, padding: "8px 12px", fontSize: 12.5 } : {}) }} onClick={() => setShowScan(true)}>📷 Scan</button>}
+
         </span>
       </div>
 
@@ -699,8 +687,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
                     <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <input className="cell" style={{ ...S.cellInput, width: "100%", fontSize: 14 }} type="number" value={r.curr}
                         onChange={(e) => setReading(r.flat, "curr", e.target.value)} />
-                      <button title="Camera" onClick={() => setCapFlat({ flat: r.flat, meter: r.meter })}
-                        style={{ border: `1px solid ${T.line}`, background: "#fff", borderRadius: 7, width: 34, height: 34, cursor: "pointer", fontSize: 15, flexShrink: 0 }}>📷</button>
+
                     </span>
                   ) : <span style={{ fontFamily: mono }}>{r.curr === "" ? "—" : Number(r.curr).toFixed(1)}</span>}
                 </div>
@@ -745,8 +732,7 @@ function WaterEntry({ water, setField, setReading, canEdit, periodStart, periodE
                 <td style={{ ...S.td, textAlign: "right", padding: canEdit ? "4px 8px" : "10px 12px" }}>
                   {canEdit ? (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-                      <button title="Capture with camera" onClick={() => setCapFlat({ flat: r.flat, meter: r.meter })}
-                        style={{ border: `1px solid ${T.line}`, background: "#fff", borderRadius: 7, width: 30, height: 30, cursor: "pointer", fontSize: 14, flexShrink: 0 }}>📷</button>
+
                       <input className="cell" style={S.cellInput} type="number" value={r.curr} onChange={(e) => setReading(r.flat, "curr", e.target.value)} />
                     </span>
                   ) : <span style={S.num}>{r.curr === "" ? "—" : Number(r.curr).toFixed(1)}</span>}
