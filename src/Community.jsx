@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createActivity, updateActivity, deleteActivity, castVote, subscribeActivityVotes } from "./data";
 import { money, fmtDate } from "./util";
 import { styles as S, T, display, mono, font } from "./styles";
@@ -6,10 +6,10 @@ import { styles as S, T, display, mono, font } from "./styles";
 const TYPES = { announcement: "📢", poll: "📊", meeting: "📅" };
 const TYPE_LABELS = { announcement: "Announcement", poll: "Poll", meeting: "Meeting" };
 
-export default function Community({ bid, activities, membership, members, config, admin, mobile }) {
+export default function Community({ bid, activities, membership, members, config, admin, mobile, initialActivityId }) {
   const [creating, setCreating] = useState(null);  // null | "announcement" | "poll" | "meeting"
   const [editing, setEditing] = useState(null);     // activity id being edited
-  const [expanded, setExpanded] = useState(null);   // activity id expanded
+  const [expanded, setExpanded] = useState(initialActivityId || null);   // activity id expanded
 
   const myUid = membership?.uid || "";
   const myFlat = membership?.flat || "";
@@ -61,13 +61,25 @@ export default function Community({ bid, activities, membership, members, config
           votes={votesMap[a.id] || []}
           onToggle={() => setExpanded(expanded === a.id ? null : a.id)}
           onEdit={() => setEditing(a.id)} editing={editing === a.id}
-          onEditDone={() => setEditing(null)} />
+          onEditDone={() => setEditing(null)} config={config} />
       ))}
     </>
   );
 }
 
-/* ---- Create form ---- */
+/* ──────────────────────────────────────────
+   RICH CONTENT — type detection + labels
+   ────────────────────────────────────────── */
+const RICH_MODES = [
+  { key: "none",  label: "None" },
+  { key: "text",  label: "📝 Text" },
+  { key: "html",  label: "🌐 HTML" },
+];
+
+
+/* ──────────────────────────────────────────
+   CREATE FORM
+   ────────────────────────────────────────── */
 function CreateForm({ type, bid, membership, onDone, onCancel }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -80,6 +92,9 @@ function CreateForm({ type, bid, membership, onDone, onCancel }) {
   const [location, setLocation] = useState("");
   const [agenda, setAgenda] = useState("");
   const [busy, setBusy] = useState(false);
+  // Rich content
+  const [richMode, setRichMode] = useState("none"); // none | text | html
+  const [richText, setRichText] = useState("");
 
   const addOption = () => setOptions([...options, ""]);
   const setOption = (i, v) => setOptions(options.map((o, idx) => idx === i ? v : o));
@@ -88,32 +103,30 @@ function CreateForm({ type, bid, membership, onDone, onCancel }) {
   const submit = async () => {
     setErr("");
     if (!title.trim()) return setErr("Title is required.");
-
-    // FUNC-03: validate at least 2 unique non-blank poll options
     if (type === "poll") {
       const validOptions = options.map((o) => o.trim()).filter(Boolean);
-      const uniqueOptions = [...new Set(validOptions)];
-      if (uniqueOptions.length < 2) {
-        return setErr("A poll needs at least 2 different options.");
-      }
+      if ([...new Set(validOptions)].length < 2) return setErr("A poll needs at least 2 different options.");
     }
-
-    // FUNC-04: require a valid date for meetings
-    if (type === "meeting") {
-      if (!date) return setErr("A meeting date is required.");
-    }
+    if (type === "meeting" && !date) return setErr("A meeting date is required.");
 
     setBusy(true);
     try {
       const base = { type, title: title.trim(), body: body.trim(), status: "published", createdBy: membership?.uid || "" };
+
+      // Rich content (paste only — no file upload on Spark plan)
+      if (richMode === "html" && richText.trim()) {
+        base.rich = { type: "html", content: richText.trim() };
+      } else if (richMode === "text" && richText.trim()) {
+        base.rich = { type: "text", content: richText.trim() };
+      }
+
       if (type === "poll") {
-        const uniqueOptions = [...new Set(options.map((o) => o.trim()).filter(Boolean))];
-        base.poll = { options: uniqueOptions };
-        // Note: votes are now stored in a subcollection, not on the activity doc
+        base.poll = { options: [...new Set(options.map((o) => o.trim()).filter(Boolean))] };
       }
       if (type === "meeting") {
         base.meeting = { date, time, location: location.trim(), agenda: agenda.trim(), mom: "" };
       }
+
       await createActivity(bid, base);
       onDone();
     } catch (e) {
@@ -136,10 +149,50 @@ function CreateForm({ type, bid, membership, onDone, onCancel }) {
 
       {type !== "poll" && (
         <>
-          <label style={C.label}>{type === "meeting" ? "Description" : "Message"}</label>
+          <label style={C.label}>{type === "meeting" ? "Description" : "Message"} <span style={{ fontWeight: 400, color: T.muted }}>(shown as preview on WhatsApp)</span></label>
           <textarea style={{ ...C.input, minHeight: 80, resize: "vertical" }} value={body}
-            onChange={(e) => setBody(e.target.value)} placeholder="Details..." />
+            onChange={(e) => setBody(e.target.value)} placeholder="Brief summary — this is what people see before clicking through..." />
         </>
+      )}
+
+      {/* Rich content attachment — any type except polls */}
+      {type !== "poll" && (
+        <div style={{ marginTop: 10 }}>
+          <label style={C.label}>Attach detailed content <span style={{ fontWeight: 400, color: T.muted }}>(optional — viewable in app)</span></label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+            {RICH_MODES.map((m) => (
+              <button key={m.key} onClick={() => { setRichMode(m.key); setErr(""); }}
+                style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font,
+                  border: `1.5px solid ${richMode === m.key ? T.water : T.line}`,
+                  background: richMode === m.key ? T.waterSoft : "#fff",
+                  color: richMode === m.key ? T.water : T.inkSoft }}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Text / HTML paste */}
+          {(richMode === "text" || richMode === "html") && (
+            <>
+              <textarea style={{ ...C.input, minHeight: 120, resize: "vertical", fontFamily: richMode === "html" ? mono : font, fontSize: richMode === "html" ? 12 : 14 }}
+                value={richText} onChange={(e) => setRichText(e.target.value)}
+                placeholder={richMode === "html" ? "Paste your styled HTML here..." : "Paste the full content here..."} />
+              {richText.trim() && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 4 }}>Preview:</div>
+                  {richMode === "html" ? (
+                    <iframe srcDoc={richText} sandbox="allow-same-origin"
+                      style={{ width: "100%", height: 200, border: `1px solid ${T.line}`, borderRadius: 8, background: "#fff" }} />
+                  ) : (
+                    <div style={{ ...C.textPreview, maxHeight: 200, overflow: "auto" }}>{richText}</div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+
+        </div>
       )}
 
       {type === "poll" && (
@@ -194,36 +247,53 @@ function CreateForm({ type, bid, membership, onDone, onCancel }) {
   );
 }
 
-/* ---- Activity card ---- */
-function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expanded, mobile, votes, onToggle, onEdit, editing, onEditDone }) {
+/* ──────────────────────────────────────────
+   ACTIVITY CARD
+   ────────────────────────────────────────── */
+function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expanded, mobile, votes, onToggle, onEdit, editing, onEditDone, config }) {
   const isPoll = a.type === "poll";
   const isMeeting = a.type === "meeting";
+  const rich = a.rich || null; // { type, content?, fileUrl?, fileName? }
+  const hasRich = !!rich;
 
   // SEC-05 / FUNC-02: votes come from subcollection, keyed by UID
   const totalVotes = isPoll ? votes.length : 0;
   const myVote = isPoll ? votes.find((v) => v.uid === myUid) : undefined;
   const ago = timeAgo(a.createdAt);
 
-  // BUILD-07: use current origin instead of hardcoded Vercel URL
-  const appLink = `${window.location.origin}${window.location.pathname}?b=${bid}&tab=community`;
+  // Deep link to this specific activity
+  const appLink = `${window.location.origin}${window.location.pathname}?b=${bid}&tab=community&a=${a.id}`;
 
   const shareText = () => {
     let msg = `${TYPES[a.type]} *${a.title}*\n`;
-    if (a.body) msg += `\n${a.body}\n`;
+
+    if (a.type === "announcement") {
+      if (a.body) {
+        const preview = a.body.length > 150 ? a.body.slice(0, 150) + "…" : a.body;
+        msg += `\n${preview}\n`;
+      }
+      if (hasRich) msg += `\n🖼️ _Detailed document available in the app_\n`;
+      msg += `\n📖 Read full details on Nivasa:\n${appLink}`;
+    }
     if (isPoll) {
       msg += "\nOptions:\n";
       (a.poll?.options || []).forEach((o, i) => { msg += `${i + 1}. ${o}\n`; });
-      msg += `\n👉 Vote now: ${appLink}\nResults update live in the app!`;
+      msg += `\n👉 Vote now on Nivasa:\n${appLink}`;
     }
     if (isMeeting) {
       const m = a.meeting || {};
       if (m.date) msg += `\n📅 ${fmtDate(m.date)}${m.time ? ` at ${m.time}` : ""}`;
       if (m.location) msg += `\n📍 ${m.location}`;
-      if (m.agenda) msg += `\n\n${m.agenda}`;
-      msg += `\n\n👉 Details: ${appLink}`;
-    }
-    if (a.type === "announcement") {
-      msg += `\n👉 Open app: ${appLink}`;
+      if (m.agenda) {
+        const preview = m.agenda.length > 150 ? m.agenda.slice(0, 150) + "…" : m.agenda;
+        msg += `\n\n${preview}`;
+      }
+      if (m.mom) {
+        const momPreview = m.mom.length > 100 ? m.mom.slice(0, 100) + "…" : m.mom;
+        msg += `\n\n📋 Minutes: ${momPreview}`;
+      }
+      if (hasRich) msg += `\n\n🖼️ _Full formatted minutes available in the app_`;
+      msg += `\n\n📖 Full details on Nivasa:\n${appLink}`;
     }
     return msg;
   };
@@ -249,6 +319,14 @@ function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expande
     }
   };
 
+  // Rich content badge for collapsed card
+  const richBadge = hasRich ? (
+    <span style={{ fontSize: 11, color: T.water, fontWeight: 600, marginTop: 3, display: "inline-block" }}>
+      {rich.type === "html" ? "🌐" : rich.type === "pdf" ? "📄" : rich.type === "docx" ? "📝" : rich.type === "image" ? "🖼️" : "📝"}{" "}
+      {rich.type === "html" ? "Rich page" : "Full text"} attached — tap to view
+    </span>
+  ) : null;
+
   return (
     <div style={C.card}>
       <div style={C.cardHead} onClick={onToggle}>
@@ -259,6 +337,7 @@ function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expande
           {!expanded && a.body && (
             <div style={C.cardPreview}>{a.body.slice(0, 100)}{a.body.length > 100 ? "..." : ""}</div>
           )}
+          {!expanded && richBadge}
           {!expanded && isPoll && <span style={{ fontSize: 12, color: T.muted }}>{totalVotes} vote{totalVotes !== 1 ? "s" : ""}</span>}
         </div>
         <span style={{ fontSize: 18, color: T.muted, flexShrink: 0 }}>{expanded ? "▲" : "▼"}</span>
@@ -332,9 +411,20 @@ function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expande
             </div>
           )}
 
+          {/* ── Rich content preview ── */}
+          {hasRich && (
+            <div style={{ marginTop: 16 }}>
+              <div style={C.subLabel}>
+                {rich.type === "html" ? "🌐 Detailed View" : "📝 Full Content"}
+              </div>
+              <RichPreview rich={rich} activityId={a.id} />
+            </div>
+          )}
+
           {/* Actions */}
           <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
             <button style={C.shareBtn} onClick={share}>💬 Share on WhatsApp</button>
+            {hasRich && <PosterButton rich={rich} activityId={a.id} title={a.title} body={a.body} appLink={appLink} config={config} />}
             {admin && <button style={C.ghostBtn} onClick={doDelete}>🗑 Delete</button>}
           </div>
         </div>
@@ -343,7 +433,219 @@ function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expande
   );
 }
 
-/* ---- MoM editor ---- */
+/* ──────────────────────────────────────────
+   RICH PREVIEW — renders based on content type
+   ────────────────────────────────────────── */
+function RichPreview({ rich, activityId }) {
+  const iframeRef = useRef(null);
+  const [iframeH, setIframeH] = useState(400);
+
+  // Auto-resize for HTML/text iframes
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const onLoad = () => {
+      try {
+        const h = iframe.contentDocument?.documentElement?.scrollHeight;
+        if (h && h > 50) setIframeH(Math.min(h + 20, 2000));
+      } catch { /* cross-origin fallback */ }
+    };
+    iframe.addEventListener("load", onLoad);
+    return () => iframe.removeEventListener("load", onLoad);
+  }, [rich]);
+
+  // HTML → sandboxed iframe
+  if (rich.type === "html") {
+    return (
+      <iframe ref={iframeRef} id={`rich-${activityId}`} srcDoc={rich.content} sandbox="allow-same-origin"
+        style={{ width: "100%", height: iframeH, border: `1px solid ${T.line}`, borderRadius: 10, background: "#fff", display: "block" }} />
+    );
+  }
+
+  // Plain text → styled div
+  if (rich.type === "text") {
+    return (
+      <div style={C.textPreview}>{rich.content}</div>
+    );
+  }
+
+  return null;
+}
+
+/* ──────────────────────────────────────────
+   POSTER BUTTON — canvas-drawn card for WhatsApp
+   Works for ALL content types (no html2canvas needed)
+   ────────────────────────────────────────── */
+function PosterButton({ rich, activityId, title, body, appLink, config }) {
+  const [busy, setBusy] = useState(false);
+
+  const generate = async () => {
+    setBusy(true);
+    try {
+      const W = 1080, pad = 48;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+
+      // Measure text height to auto-size canvas
+      ctx.font = "600 28px Poppins, system-ui, sans-serif";
+      const bodyLines = body ? wrapText(ctx, body, W - pad * 2, 32) : [];
+      const titleLines = wrapText(ctx, title, W - pad * 2, 40);
+
+      const headerH = 200;
+      const titleH = titleLines.length * 48 + 24;
+      const bodyH = bodyLines.length > 0 ? bodyLines.length * 38 + 30 : 0;
+      const badgeH = rich ? 70 : 0;
+      const footerH = 90;
+      const H = headerH + titleH + bodyH + badgeH + footerH + pad;
+
+      canvas.width = W;
+      canvas.height = H;
+
+      // Background
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, W, H);
+
+      // Header gradient
+      const hGrad = ctx.createLinearGradient(0, 0, W, headerH);
+      hGrad.addColorStop(0, "#1A6B72");
+      hGrad.addColorStop(1, "#0D4A50");
+      ctx.fillStyle = hGrad;
+      ctx.fillRect(0, 0, W, headerH);
+
+      // Gold accent line
+      const goldGrad = ctx.createLinearGradient(0, 0, W, 0);
+      goldGrad.addColorStop(0, "#C9A84C"); goldGrad.addColorStop(0.5, "#E8C96A"); goldGrad.addColorStop(1, "#C9A84C");
+      ctx.fillStyle = goldGrad;
+      ctx.fillRect(0, headerH - 5, W, 5);
+
+      // Building name
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      ctx.font = "600 14px Poppins, system-ui, sans-serif";
+      ctx.letterSpacing = "2px";
+      ctx.fillText((config?.name || "NIVASA").toUpperCase(), pad, 50);
+
+      // Nivasa branding
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "800 36px Poppins, system-ui, sans-serif";
+      ctx.fillText("📋 Minutes of Meeting", pad, 100);
+
+      // Date
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.font = "400 18px Poppins, system-ui, sans-serif";
+      const dateStr = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+      ctx.fillText(dateStr, pad, 135);
+
+      // App link in header
+      ctx.fillStyle = "rgba(255,255,255,0.4)";
+      ctx.font = "500 13px Poppins, system-ui, sans-serif";
+      ctx.fillText("nivasa", pad, 175);
+
+      // Title
+      let y = headerH + 40;
+      ctx.fillStyle = "#1C2B2D";
+      ctx.font = "700 32px Poppins, system-ui, sans-serif";
+      titleLines.forEach((line) => {
+        ctx.fillText(line, pad, y);
+        y += 48;
+      });
+
+      // Body preview
+      if (bodyLines.length > 0) {
+        y += 10;
+        ctx.fillStyle = "#6B7B7D";
+        ctx.font = "400 22px Poppins, system-ui, sans-serif";
+        const maxBodyLines = bodyLines.slice(0, 5); // cap at 5 lines
+        maxBodyLines.forEach((line, i) => {
+          let displayLine = line;
+          if (i === maxBodyLines.length - 1 && bodyLines.length > 5) displayLine += "…";
+          ctx.fillText(displayLine, pad, y);
+          y += 34;
+        });
+      }
+
+      // Content type badge
+      if (rich) {
+        y += 16;
+        const icon = rich.type === "html" ? "🌐" : rich.type === "pdf" ? "📄" : rich.type === "docx" ? "📝" : rich.type === "image" ? "🖼️" : "📝";
+        const label = rich.type === "html" ? "Full formatted page" : "Full text content";
+        ctx.fillStyle = "#E8F4F5";
+        roundRect(ctx, pad, y - 22, W - pad * 2, 44, 10);
+        ctx.fill();
+        ctx.fillStyle = "#1A6B72";
+        ctx.font = "600 18px Poppins, system-ui, sans-serif";
+        ctx.fillText(`${icon}  ${label} — open in app to view`, pad + 16, y + 2);
+        y += 44;
+      }
+
+      // Footer
+      const fy = H - footerH;
+      ctx.fillStyle = "#1A6B72";
+      ctx.fillRect(0, fy, W, footerH);
+      ctx.fillStyle = goldGrad;
+      ctx.fillRect(0, fy, W, 4);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "700 22px Poppins, system-ui, sans-serif";
+      ctx.fillText("📖 Read full details on Nivasa", pad, fy + 38);
+      ctx.fillStyle = "rgba(255,255,255,0.6)";
+      ctx.font = "400 15px Poppins, system-ui, sans-serif";
+      const shortLink = appLink.length > 80 ? appLink.slice(0, 80) + "…" : appLink;
+      ctx.fillText(shortLink, pad, fy + 65);
+
+      // Download
+      const link = document.createElement("a");
+      link.download = `${title.replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40)}_poster.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (e) {
+      console.error("Poster generation failed:", e);
+      alert("Could not generate poster. Try taking a screenshot instead.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button style={C.posterBtn} onClick={generate} disabled={busy}>
+      {busy ? "Generating…" : "📸 Download Poster"}
+    </button>
+  );
+}
+
+// Canvas helper: word wrap
+function wrapText(ctx, text, maxW, _lineH) {
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const test = line ? line + " " + word : word;
+    if (ctx.measureText(test).width > maxW && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+// Canvas helper: rounded rectangle
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/* ──────────────────────────────────────────
+   MoM EDITOR
+   ────────────────────────────────────────── */
 function MomEditor({ bid, activityId, mom, onDone }) {
   const [text, setText] = useState(mom);
   const [saving, setSaving] = useState(false);
@@ -408,9 +710,11 @@ const C = {
   bodyText: { fontSize: 14, color: T.ink, lineHeight: 1.6, whiteSpace: "pre-wrap" },
   subLabel: { fontSize: 12, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 },
   shareBtn: { background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font },
+  posterBtn: { background: "#fff", border: `1.5px solid ${T.water}`, borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", color: T.water, fontFamily: font },
   pollRow: { marginBottom: 6 },
   pollBtn: { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", border: `1.5px solid ${T.line}`, borderRadius: 10, background: "#fff", fontFamily: font, fontSize: 14, color: T.ink },
   pollBtnActive: { borderColor: T.water, background: T.waterSoft, color: T.water, fontWeight: 700 },
   pollBar: { height: 4, borderRadius: 2, background: "#EEF0F6", marginTop: 3 },
   pollFill: { height: "100%", borderRadius: 2, background: T.water, transition: "width .3s" },
+  textPreview: { fontSize: 14, color: T.ink, lineHeight: 1.7, whiteSpace: "pre-wrap", background: "#FAFBFE", padding: "16px 18px", borderRadius: 10, border: `1px solid ${T.line}`, maxHeight: 600, overflow: "auto" },
 };

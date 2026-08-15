@@ -56,6 +56,9 @@ export default function Dashboard({
   const [tab, setTab] = useState(() => {
     try { const p = new URLSearchParams(window.location.search).get("tab"); return p || "home"; } catch { return "home"; }
   });
+  const [initialActivityId] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("a") || null; } catch { return null; }
+  });
   const [openFlat, setOpenFlat] = useState(null);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -340,7 +343,7 @@ export default function Dashboard({
         )}
         {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} config={config} />}
         {tab === "history" && <History flat={meFlat} residential={residential} allFlats={allMeters} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} corpusMonthly={Number(config?.corpus?.monthly || 0)} />}
-        {tab === "community" && <Community bid={bid} activities={activities} membership={membership} members={members} config={config} admin={admin} mobile={mobile} />}
+        {tab === "community" && <Community bid={bid} activities={activities} membership={membership} members={members} config={config} admin={admin} mobile={mobile} initialActivityId={initialActivityId} />}
         {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} onConfirm={(opts) => setConfirmModal(opts)} />}
       </main>
 

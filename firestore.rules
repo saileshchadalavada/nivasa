@@ -206,7 +206,7 @@ service cloud.firestore {
         function validActivity(data) {
           return data.keys().hasOnly([
                'type', 'title', 'body', 'status', 'createdBy',
-               'createdAt', 'updatedAt', 'poll', 'meeting'
+               'createdAt', 'updatedAt', 'poll', 'meeting', 'rich'
              ])
             && (
                  data.type == 'announcement'
@@ -218,6 +218,7 @@ service cloud.firestore {
             && data.title.size() <= 150
             && data.body is string
             && data.body.size() <= 5000
+            && (data.rich == null || data.rich is map)
             && data.createdBy is string
             && data.createdAt is int
             && data.updatedAt is int;
