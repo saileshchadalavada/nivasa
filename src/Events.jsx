@@ -148,7 +148,7 @@ function CreateEventForm({ bid, events, onDone, onCancel }) {
       </div>
       {lastClosed && (
         <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
-          Last event “{lastClosed.name}” closed with {money(lastClosed.closingBalance || 0)}.
+          Last event "{lastClosed.name}" closed with {money(lastClosed.closingBalance || 0)}.
         </div>
       )}
       {err && <div style={E.err}>{err}</div>}
@@ -178,13 +178,20 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
     ? Math.min(100, Math.round((balance / ev.targetAmount) * 100))
     : null;
 
+  const isActive = ev.status === "active";
   const patchEvent = (patch) => updateEvent(bid, ev.id, patch);
 
   const closeEvent = () => {
     if (window.confirm(
-      `Close “${ev.name}”?\n\nClosing balance: ${money(balance)}\n\nYou can use this as the opening balance for the next event.`
+      `Close "${ev.name}"?\n\nClosing balance: ${money(balance)}\n\nYou can use this as the opening balance for the next event.`
     )) {
       patchEvent({ status: "closed", closingBalance: balance });
+    }
+  };
+
+  const reopenEvent = () => {
+    if (window.confirm(`Reopen "${ev.name}"? Entries will become editable again.`)) {
+      patchEvent({ status: "active" });
     }
   };
 
@@ -220,8 +227,8 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
             <span style={{ fontFamily: display, fontWeight: 800, fontSize: 20, color: T.ink }}>{ev.name}</span>
             <span style={{
               fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20,
-              background: ev.status === "active" ? "#E8F9EE" : "#F1F1F8",
-              color: ev.status === "active" ? T.money : T.muted,
+              background: isActive ? "#E8F9EE" : "#F1F1F8",
+              color: isActive ? T.money : T.muted,
               textTransform: "uppercase", letterSpacing: ".04em",
             }}>
               {ev.status}
@@ -234,8 +241,11 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button style={E.shareBtn} onClick={shareWhatsApp}>💬 Share</button>
           <EventPosterButton ev={ev} />
-          {admin && ev.status === "active" && (
+          {admin && isActive && (
             <button style={E.closeBtn2} onClick={closeEvent}>Close event</button>
+          )}
+          {admin && !isActive && (
+            <button style={E.reopenBtn} onClick={reopenEvent}>🔓 Reopen event</button>
           )}
         </div>
       </div>
@@ -271,16 +281,19 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
       {tab === "donations" && (
         <DonationsTab
           ev={ev} bid={bid} admin={admin} mobile={mobile} residential={residential}
+          isActive={isActive}
           onSave={(dons, exps) => patchEvent({ donations: dons, expenses: exps })} />
       )}
       {tab === "expenses" && (
         <ExpensesTab
           ev={ev} bid={bid} admin={admin} mobile={mobile} residential={residential}
+          isActive={isActive}
           onSave={(exps, dons) => patchEvent({ expenses: exps, donations: dons })} />
       )}
       {tab === "receivables" && (
         <ReceivablesTab
           ev={ev} bid={bid} admin={admin} mobile={mobile} residential={residential}
+          isActive={isActive}
           onSave={(recs) => patchEvent({ receivables: recs })} />
       )}
     </>
@@ -288,7 +301,7 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
 }
 
 /* ---- Donations Tab ---- */
-function DonationsTab({ ev, admin, mobile, residential, onSave }) {
+function DonationsTab({ ev, admin, mobile, residential, isActive, onSave }) {
   const donations = ev.donations || [];
   const expenses = ev.expenses || [];
 
@@ -298,12 +311,54 @@ function DonationsTab({ ev, admin, mobile, residential, onSave }) {
   });
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(blank());
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const sorted = [...donations].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const total = donations.reduce((s, d) => s + Number(d.amount || 0), 0);
 
   const flatName = (flat) => residential.find((f) => f.flat === flat)?.name || "";
+
+  const startEdit = (d) => {
+    setAdding(false);
+    setEditingId(d.id);
+    setEditForm({
+      date: d.date || new Date().toISOString().slice(0, 10),
+      flat: d.flat || "",
+      name: d.name || "",
+      amount: String(d.amount || ""),
+      type: d.type === "external" ? "contribution" : (d.type || "contribution"),
+      remarks: d.remarks || "",
+      isExternal: !!(d.isExternal || d.type === "external"),
+    });
+  };
+
+  const cancelEdit = () => { setEditingId(null); setEditForm(null); };
+
+  const saveEdit = async () => {
+    if (!editForm) return;
+    const amt = Number(editForm.amount);
+    if (amt <= 0) return;
+    if (!editForm.isExternal && !editForm.flat) return;
+    if (editForm.isExternal && !editForm.name.trim()) return;
+    setBusy(true);
+    try {
+      const orig = donations.find((d) => d.id === editingId);
+      const updated = {
+        ...orig,
+        date: editForm.date,
+        amount: amt,
+        type: editForm.isExternal ? "external" : editForm.type,
+        flat: editForm.isExternal ? "" : editForm.flat,
+        name: editForm.isExternal ? editForm.name.trim() : (editForm.name || flatName(editForm.flat)),
+        remarks: editForm.remarks.trim(),
+        isExternal: editForm.isExternal,
+      };
+      await onSave(donations.map((d) => d.id === editingId ? updated : d), expenses);
+      cancelEdit();
+    } finally { setBusy(false); }
+  };
 
   const add = async () => {
     const amt = Number(form.amount);
@@ -323,7 +378,6 @@ function DonationsTab({ ev, admin, mobile, residential, onSave }) {
       };
       let newDons = [...donations, entry];
       let newExps = expenses;
-      // Contra: item donation auto-creates a matching expense
       if (!form.isExternal && form.type === "contra") {
         newExps = [...expenses, {
           id: "e_contra_" + id,
@@ -347,34 +401,102 @@ function DonationsTab({ ev, admin, mobile, residential, onSave }) {
     }
   };
 
+  const donEditForm = editForm && (
+    <div style={{ ...E.formInline, margin: 0 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontWeight: 700, fontSize: 13, color: T.ink }}>Edit donation</span>
+        <button style={E.iconBtn} onClick={cancelEdit}>✕</button>
+      </div>
+      <div style={S.inputGrid}>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Date</span>
+          <input type="date" style={S.fieldInput} value={editForm.date}
+            onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} />
+        </label>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Type</span>
+          <select style={{ ...S.fieldInput, fontFamily: "inherit" }} value={editForm.type}
+            onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
+            disabled={editForm.isExternal}>
+            {Object.entries(DON_TYPES).filter(([k]) => k !== "external").map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", margin: "8px 0" }}>
+        <input type="checkbox" checked={editForm.isExternal}
+          onChange={(e) => setEditForm({ ...editForm, isExternal: e.target.checked, flat: "", name: "" })} />
+        External donor
+      </label>
+      <div style={S.inputGrid}>
+        {editForm.isExternal ? (
+          <label style={S.field}>
+            <span style={S.fieldLabel}>Donor name *</span>
+            <input style={S.fieldInput} value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+          </label>
+        ) : (
+          <label style={S.field}>
+            <span style={S.fieldLabel}>Flat *</span>
+            <select style={{ ...S.fieldInput, fontFamily: "inherit" }} value={editForm.flat}
+              onChange={(e) => setEditForm({ ...editForm, flat: e.target.value, name: flatName(e.target.value) })}>
+              <option value="">— select —</option>
+              {residential.map((f) => <option key={f.flat} value={f.flat}>Flat {f.flat} – {f.name}</option>)}
+            </select>
+          </label>
+        )}
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Amount (₹) *</span>
+          <input type="number" style={S.fieldInput} value={editForm.amount}
+            onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} />
+        </label>
+        <label style={{ ...S.field, gridColumn: "1 / -1" }}>
+          <span style={S.fieldLabel}>Remarks</span>
+          <input style={S.fieldInput} value={editForm.remarks}
+            onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} />
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button style={E.ghostBtn} onClick={cancelEdit}>Cancel</button>
+        <button className="primaryBtn" style={{ ...S.primaryBtn, flex: 1 }} onClick={saveEdit}
+          disabled={busy || Number(editForm.amount) <= 0 || (!editForm.isExternal && !editForm.flat) || (editForm.isExternal && !editForm.name.trim())}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <>
       {donations.length === 0 && !adding && (
         <div style={{ color: T.muted, fontSize: 14, padding: "20px 0", textAlign: "center" }}>
-          No donations recorded yet.{admin ? " Add the first one below." : ""}
+          No donations recorded yet.{isActive && admin ? " Add the first one below." : ""}
         </div>
       )}
 
       {donations.length > 0 && (mobile ? (
-        /* Mobile card layout */
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
           {sorted.map((d) => (
             <div key={d.id} style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  {d.isExternal || d.type === "external"
-                    ? <><span style={E.extTag}>Ext</span> {d.name}</>
-                    : d.flat
-                      ? <><b style={{ fontFamily: display }}>Flat {d.flat}</b>{d.name ? <span style={{ color: T.muted, fontSize: 12.5, marginLeft: 4 }}>{d.name}</span> : null}</>
-                      : <b style={{ fontFamily: display }}>{d.name || "—"}</b>}
-                  <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>{DON_TYPES[d.type] || d.type} · {fmtDate(d.date)}</div>
-                  {d.remarks && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>{d.remarks}</div>}
+              {editingId === d.id ? donEditForm : (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    {d.isExternal || d.type === "external"
+                      ? <><span style={E.extTag}>Ext</span> {d.name}</>
+                      : d.flat
+                        ? <><b style={{ fontFamily: display }}>Flat {d.flat}</b>{d.name ? <span style={{ color: T.muted, fontSize: 12.5, marginLeft: 4 }}>{d.name}</span> : null}</>
+                        : <b style={{ fontFamily: display }}>{d.name || "—"}</b>}
+                    <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>{DON_TYPES[d.type] || d.type} · {fmtDate(d.date)}</div>
+                    {d.remarks && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>{d.remarks}</div>}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontFamily: mono, fontWeight: 700, color: T.money }}>{money(d.amount)}</span>
+                    {isActive && admin && <button style={E.editBtn} onClick={() => startEdit(d)}>✏️</button>}
+                    {isActive && admin && <button className="del" style={S.del} onClick={() => remove(d.id)}>✕</button>}
+                  </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontFamily: mono, fontWeight: 700, color: T.money }}>{money(d.amount)}</span>
-                  {admin && <button className="del" style={S.del} onClick={() => remove(d.id)}>✕</button>}
-                </div>
-              </div>
+              )}
             </div>
           ))}
           <div style={{ background: "#F7F7FC", borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 14 }}>
@@ -383,7 +505,6 @@ function DonationsTab({ ev, admin, mobile, residential, onSave }) {
           </div>
         </div>
       ) : (
-        /* Desktop table */
         <div style={S.tableWrap}>
           <table style={S.table}>
             <thead><tr>
@@ -392,40 +513,55 @@ function DonationsTab({ ev, admin, mobile, residential, onSave }) {
               <th style={S.th}>Type</th>
               <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
               <th style={S.th}>Remarks</th>
-              {admin && <th style={S.th} />}
+              {admin && isActive && <th style={S.th} />}
             </tr></thead>
             <tbody>
               {sorted.map((d) => (
-                <tr key={d.id}>
-                  <td style={{ ...S.td, fontFamily: mono, fontSize: 12.5 }}>{fmtDate(d.date)}</td>
-                  <td style={S.td}>
-                    {d.isExternal || d.type === "external"
-                      ? <><span style={E.extTag}>Ext</span> {d.name}</>
-                      : d.flat
-                        ? <><b>Flat {d.flat}</b>{d.name ? <span style={{ color: T.muted, fontSize: 12.5, marginLeft: 4 }}>{d.name}</span> : null}</>
-                        : <b>{d.name || "—"}</b>}
-                  </td>
-                  <td style={{ ...S.td, fontSize: 12.5, color: T.inkSoft }}>{DON_TYPES[d.type] || d.type}</td>
-                  <td style={{ ...S.td, ...S.num, fontWeight: 700, color: T.money }}>{money(d.amount)}</td>
-                  <td style={{ ...S.td, fontSize: 12, color: T.muted }}>{d.remarks || "—"}</td>
-                  {admin && <td style={{ ...S.td, textAlign: "center" }}><button className="del" style={S.del} onClick={() => remove(d.id)}>✕</button></td>}
-                </tr>
+                editingId === d.id ? (
+                  <tr key={d.id}>
+                    <td colSpan={admin && isActive ? 6 : 5} style={{ padding: "8px 4px" }}>
+                      {donEditForm}
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={d.id}>
+                    <td style={{ ...S.td, fontFamily: mono, fontSize: 12.5 }}>{fmtDate(d.date)}</td>
+                    <td style={S.td}>
+                      {d.isExternal || d.type === "external"
+                        ? <><span style={E.extTag}>Ext</span> {d.name}</>
+                        : d.flat
+                          ? <><b>Flat {d.flat}</b>{d.name ? <span style={{ color: T.muted, fontSize: 12.5, marginLeft: 4 }}>{d.name}</span> : null}</>
+                          : <b>{d.name || "—"}</b>}
+                    </td>
+                    <td style={{ ...S.td, fontSize: 12.5, color: T.inkSoft }}>{DON_TYPES[d.type] || d.type}</td>
+                    <td style={{ ...S.td, ...S.num, fontWeight: 700, color: T.money }}>{money(d.amount)}</td>
+                    <td style={{ ...S.td, fontSize: 12, color: T.muted }}>{d.remarks || "—"}</td>
+                    {admin && isActive && (
+                      <td style={{ ...S.td, textAlign: "center" }}>
+                        <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                          <button style={E.editBtn} onClick={() => startEdit(d)}>✏️</button>
+                          <button className="del" style={S.del} onClick={() => remove(d.id)}>✕</button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                )
               ))}
             </tbody>
             <tfoot><tr>
               <td style={S.tfoot} colSpan={3}>Total</td>
               <td style={{ ...S.tfoot, ...S.num }}>{money(total)}</td>
-              <td style={S.tfoot} colSpan={admin ? 2 : 1} />
+              <td style={S.tfoot} colSpan={admin && isActive ? 2 : 1} />
             </tr></tfoot>
           </table>
         </div>
       ))}
 
-      {admin && !adding && (
-        <button className="add" style={S.addBtn} onClick={() => setAdding(true)}>+ Add donation</button>
+      {isActive && admin && !adding && (
+        <button className="add" style={S.addBtn} onClick={() => { cancelEdit(); setAdding(true); }}>+ Add donation</button>
       )}
 
-      {admin && adding && (
+      {isActive && admin && adding && (
         <div style={E.formInline}>
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: T.ink }}>Add donation</div>
           <div style={S.inputGrid}>
@@ -496,7 +632,7 @@ function DonationsTab({ ev, admin, mobile, residential, onSave }) {
 }
 
 /* ---- Expenses Tab ---- */
-function ExpensesTab({ ev, admin, mobile, residential, onSave }) {
+function ExpensesTab({ ev, admin, mobile, residential, isActive, onSave }) {
   const expenses = ev.expenses || [];
   const donations = ev.donations || [];
 
@@ -507,10 +643,50 @@ function ExpensesTab({ ev, admin, mobile, residential, onSave }) {
   });
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(blank());
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const sorted = [...expenses].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const total = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+
+  const startEdit = (ex) => {
+    setAdding(false);
+    setEditingId(ex.id);
+    setEditForm({
+      date: ex.date || new Date().toISOString().slice(0, 10),
+      description: ex.description || "",
+      amount: String(ex.amount || ""),
+      paidBy: ex.paidBy || "fund",
+      status: ex.status || "settled",
+      category: ex.category || "misc",
+      remarks: ex.remarks || "",
+    });
+  };
+
+  const cancelEdit = () => { setEditingId(null); setEditForm(null); };
+
+  const saveEdit = async () => {
+    if (!editForm) return;
+    const amt = Number(editForm.amount);
+    if (!editForm.description.trim() || amt <= 0) return;
+    setBusy(true);
+    try {
+      const orig = expenses.find((e) => e.id === editingId);
+      const updated = {
+        ...orig,
+        date: editForm.date,
+        description: editForm.description.trim(),
+        amount: amt,
+        paidBy: editForm.paidBy,
+        status: editForm.status,
+        category: editForm.category,
+        remarks: editForm.remarks.trim(),
+      };
+      await onSave(expenses.map((e) => e.id === editingId ? updated : e), donations);
+      cancelEdit();
+    } finally { setBusy(false); }
+  };
 
   const add = async () => {
     const amt = Number(form.amount);
@@ -525,16 +701,15 @@ function ExpensesTab({ ev, admin, mobile, residential, onSave }) {
       };
       let newExps = [...expenses, entry];
       let newDons = donations;
-      // Contra: donation-in-kind auto-creates a matching donation entry
       if (form.status === "donation") {
-        const flatName = form.paidBy !== "fund"
+        const fName = form.paidBy !== "fund"
           ? (residential.find((f) => f.flat === form.paidBy)?.name || "")
           : "";
         newDons = [...donations, {
           id: "d_contra_" + id,
           date: form.date,
           flat: form.paidBy !== "fund" ? form.paidBy : "",
-          name: flatName,
+          name: fName,
           amount: amt,
           type: "contra",
           remarks: form.description.trim(),
@@ -554,11 +729,72 @@ function ExpensesTab({ ev, admin, mobile, residential, onSave }) {
 
   const STATUS_LABEL = { settled: "Settled", donation: "Donation in kind" };
 
+  const expEditForm = editForm && (
+    <div style={{ ...E.formInline, margin: 0 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontWeight: 700, fontSize: 13, color: T.ink }}>Edit expense</span>
+        <button style={E.iconBtn} onClick={cancelEdit}>✕</button>
+      </div>
+      <div style={S.inputGrid}>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Date</span>
+          <input type="date" style={S.fieldInput} value={editForm.date}
+            onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} />
+        </label>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Category</span>
+          <select style={{ ...S.fieldInput, fontFamily: "inherit" }} value={editForm.category}
+            onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}>
+            {Object.entries(CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </label>
+        <label style={{ ...S.field, gridColumn: "1 / -1" }}>
+          <span style={S.fieldLabel}>Description *</span>
+          <input style={S.fieldInput} value={editForm.description}
+            onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+        </label>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Amount (₹) *</span>
+          <input type="number" style={S.fieldInput} value={editForm.amount}
+            onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} />
+        </label>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Paid by</span>
+          <select style={{ ...S.fieldInput, fontFamily: "inherit" }} value={editForm.paidBy}
+            onChange={(e) => setEditForm({ ...editForm, paidBy: e.target.value })}>
+            <option value="fund">Association fund</option>
+            {residential.map((f) => <option key={f.flat} value={f.flat}>Flat {f.flat} – {f.name}</option>)}
+          </select>
+        </label>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Status</span>
+          <select style={{ ...S.fieldInput, fontFamily: "inherit" }} value={editForm.status}
+            onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}>
+            <option value="settled">Settled (cash / UPI)</option>
+            <option value="donation">Donation in kind (contra)</option>
+          </select>
+        </label>
+        <label style={{ ...S.field, gridColumn: "1 / -1" }}>
+          <span style={S.fieldLabel}>Remarks</span>
+          <input style={S.fieldInput} value={editForm.remarks}
+            onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} />
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button style={E.ghostBtn} onClick={cancelEdit}>Cancel</button>
+        <button className="primaryBtn" style={{ ...S.primaryBtn, flex: 1 }} onClick={saveEdit}
+          disabled={busy || !editForm.description.trim() || Number(editForm.amount) <= 0}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <>
       {expenses.length === 0 && !adding && (
         <div style={{ color: T.muted, fontSize: 14, padding: "20px 0", textAlign: "center" }}>
-          No expenses yet.{admin ? " Add the first one below." : ""}
+          No expenses yet.{isActive && admin ? " Add the first one below." : ""}
         </div>
       )}
 
@@ -566,22 +802,25 @@ function ExpensesTab({ ev, admin, mobile, residential, onSave }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
           {sorted.map((ex) => (
             <div key={ex.id} style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{ex.description}</div>
-                  <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>
-                    {CATEGORIES[ex.category] || ex.category} · {fmtDate(ex.date)}
-                    {ex.paidBy !== "fund" && ` · Flat ${ex.paidBy}`}
+              {editingId === ex.id ? expEditForm : (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{ex.description}</div>
+                    <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>
+                      {CATEGORIES[ex.category] || ex.category} · {fmtDate(ex.date)}
+                      {ex.paidBy !== "fund" && ` · Flat ${ex.paidBy}`}
+                    </div>
+                    <div style={{ fontSize: 12, color: ex.status === "donation" ? T.water : T.inkSoft, marginTop: 2 }}>
+                      {STATUS_LABEL[ex.status] || ex.status}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: ex.status === "donation" ? T.water : T.inkSoft, marginTop: 2 }}>
-                    {STATUS_LABEL[ex.status] || ex.status}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontFamily: mono, fontWeight: 700, color: T.owed }}>{money(ex.amount)}</span>
+                    {isActive && admin && <button style={E.editBtn} onClick={() => startEdit(ex)}>✏️</button>}
+                    {isActive && admin && <button className="del" style={S.del} onClick={() => remove(ex.id)}>✕</button>}
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontFamily: mono, fontWeight: 700, color: T.owed }}>{money(ex.amount)}</span>
-                  {admin && <button className="del" style={S.del} onClick={() => remove(ex.id)}>✕</button>}
-                </div>
-              </div>
+              )}
             </div>
           ))}
           <div style={{ background: "#F7F7FC", borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 14 }}>
@@ -599,41 +838,56 @@ function ExpensesTab({ ev, admin, mobile, residential, onSave }) {
               <th style={S.th}>Paid by</th>
               <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
               <th style={S.th}>Status</th>
-              {admin && <th style={S.th} />}
+              {admin && isActive && <th style={S.th} />}
             </tr></thead>
             <tbody>
               {sorted.map((ex) => (
-                <tr key={ex.id}>
-                  <td style={{ ...S.td, fontFamily: mono, fontSize: 12.5 }}>{fmtDate(ex.date)}</td>
-                  <td style={{ ...S.td, fontWeight: 600 }}>{ex.description}</td>
-                  <td style={{ ...S.td, fontSize: 12.5, color: T.inkSoft }}>{CATEGORIES[ex.category] || ex.category}</td>
-                  <td style={{ ...S.td, fontSize: 12.5 }}>
-                    {ex.paidBy === "fund" ? <span style={{ color: T.muted }}>Fund</span> : `Flat ${ex.paidBy}`}
-                  </td>
-                  <td style={{ ...S.td, ...S.num, fontWeight: 700, color: T.owed }}>{money(ex.amount)}</td>
-                  <td style={{ ...S.td, fontSize: 12 }}>
-                    <span style={{ color: ex.status === "donation" ? T.water : T.inkSoft }}>
-                      {STATUS_LABEL[ex.status] || ex.status}
-                    </span>
-                  </td>
-                  {admin && <td style={{ ...S.td, textAlign: "center" }}><button className="del" style={S.del} onClick={() => remove(ex.id)}>✕</button></td>}
-                </tr>
+                editingId === ex.id ? (
+                  <tr key={ex.id}>
+                    <td colSpan={admin && isActive ? 7 : 6} style={{ padding: "8px 4px" }}>
+                      {expEditForm}
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={ex.id}>
+                    <td style={{ ...S.td, fontFamily: mono, fontSize: 12.5 }}>{fmtDate(ex.date)}</td>
+                    <td style={{ ...S.td, fontWeight: 600 }}>{ex.description}</td>
+                    <td style={{ ...S.td, fontSize: 12.5, color: T.inkSoft }}>{CATEGORIES[ex.category] || ex.category}</td>
+                    <td style={{ ...S.td, fontSize: 12.5 }}>
+                      {ex.paidBy === "fund" ? <span style={{ color: T.muted }}>Fund</span> : `Flat ${ex.paidBy}`}
+                    </td>
+                    <td style={{ ...S.td, ...S.num, fontWeight: 700, color: T.owed }}>{money(ex.amount)}</td>
+                    <td style={{ ...S.td, fontSize: 12 }}>
+                      <span style={{ color: ex.status === "donation" ? T.water : T.inkSoft }}>
+                        {STATUS_LABEL[ex.status] || ex.status}
+                      </span>
+                    </td>
+                    {admin && isActive && (
+                      <td style={{ ...S.td, textAlign: "center" }}>
+                        <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                          <button style={E.editBtn} onClick={() => startEdit(ex)}>✏️</button>
+                          <button className="del" style={S.del} onClick={() => remove(ex.id)}>✕</button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                )
               ))}
             </tbody>
             <tfoot><tr>
               <td style={S.tfoot} colSpan={4}>Total</td>
               <td style={{ ...S.tfoot, ...S.num }}>{money(total)}</td>
-              <td style={S.tfoot} colSpan={admin ? 2 : 1} />
+              <td style={S.tfoot} colSpan={admin && isActive ? 2 : 1} />
             </tr></tfoot>
           </table>
         </div>
       ))}
 
-      {admin && !adding && (
-        <button className="add" style={S.addBtn} onClick={() => setAdding(true)}>+ Add expense</button>
+      {isActive && admin && !adding && (
+        <button className="add" style={S.addBtn} onClick={() => { cancelEdit(); setAdding(true); }}>+ Add expense</button>
       )}
 
-      {admin && adding && (
+      {isActive && admin && adding && (
         <div style={E.formInline}>
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: T.ink }}>Add expense</div>
           <div style={S.inputGrid}>
@@ -699,13 +953,41 @@ function ExpensesTab({ ev, admin, mobile, residential, onSave }) {
 }
 
 /* ---- Receivables Tab ---- */
-function ReceivablesTab({ ev, admin, mobile, residential, onSave }) {
+function ReceivablesTab({ ev, admin, mobile, residential, isActive, onSave }) {
   const receivables = ev.receivables || [];
 
   const blank = () => ({ description: "", flat: "", amount: "" });
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(blank());
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  const startEdit = (r) => {
+    setAdding(false);
+    setEditingId(r.id);
+    setEditForm({
+      description: r.description || "",
+      flat: r.flat || "",
+      amount: String(r.amount || ""),
+      status: r.status || "pending",
+    });
+  };
+
+  const cancelEdit = () => { setEditingId(null); setEditForm(null); };
+
+  const saveEdit = async () => {
+    if (!editForm) return;
+    const amt = Number(editForm.amount);
+    if (!editForm.description.trim() || !editForm.flat || amt <= 0) return;
+    setBusy(true);
+    try {
+      const orig = receivables.find((r) => r.id === editingId);
+      const updated = { ...orig, description: editForm.description.trim(), flat: editForm.flat, amount: amt, status: editForm.status };
+      await onSave(receivables.map((r) => r.id === editingId ? updated : r));
+      cancelEdit();
+    } finally { setBusy(false); }
+  };
 
   const add = async () => {
     const amt = Number(form.amount);
@@ -726,6 +1008,50 @@ function ReceivablesTab({ ev, admin, mobile, residential, onSave }) {
     if (window.confirm("Remove this receivable?")) onSave(receivables.filter((r) => r.id !== id));
   };
 
+  const recEditForm = editForm && (
+    <div style={{ ...E.formInline, margin: 0 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontWeight: 700, fontSize: 13, color: T.ink }}>Edit receivable</span>
+        <button style={E.iconBtn} onClick={cancelEdit}>✕</button>
+      </div>
+      <div style={S.inputGrid}>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Flat *</span>
+          <select style={{ ...S.fieldInput, fontFamily: "inherit" }} value={editForm.flat}
+            onChange={(e) => setEditForm({ ...editForm, flat: e.target.value })}>
+            <option value="">— select —</option>
+            {residential.map((f) => <option key={f.flat} value={f.flat}>Flat {f.flat} – {f.name}</option>)}
+          </select>
+        </label>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Description *</span>
+          <input style={S.fieldInput} value={editForm.description}
+            onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+        </label>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Amount (₹) *</span>
+          <input type="number" style={S.fieldInput} value={editForm.amount}
+            onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} />
+        </label>
+        <label style={S.field}>
+          <span style={S.fieldLabel}>Status</span>
+          <select style={{ ...S.fieldInput, fontFamily: "inherit" }} value={editForm.status}
+            onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}>
+            <option value="pending">Pending</option>
+            <option value="received">Received</option>
+          </select>
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button style={E.ghostBtn} onClick={cancelEdit}>Cancel</button>
+        <button className="primaryBtn" style={{ ...S.primaryBtn, flex: 1 }} onClick={saveEdit}
+          disabled={busy || !editForm.description.trim() || !editForm.flat || Number(editForm.amount) <= 0}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <>
       <p style={{ fontSize: 12.5, color: T.muted, margin: "0 0 10px" }}>
@@ -734,7 +1060,7 @@ function ReceivablesTab({ ev, admin, mobile, residential, onSave }) {
 
       {receivables.length === 0 && !adding && (
         <div style={{ color: T.muted, fontSize: 14, padding: "20px 0", textAlign: "center" }}>
-          No receivables recorded.{admin ? " Add one below." : ""}
+          No receivables recorded.{isActive && admin ? " Add one below." : ""}
         </div>
       )}
 
@@ -746,37 +1072,52 @@ function ReceivablesTab({ ev, admin, mobile, residential, onSave }) {
               <th style={S.th}>Description</th>
               <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
               <th style={{ ...S.th, textAlign: "center" }}>Status</th>
-              {admin && <th style={S.th} />}
+              {admin && isActive && <th style={S.th} />}
             </tr></thead>
             <tbody>
               {receivables.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ ...S.td, fontWeight: 600 }}>Flat {r.flat}</td>
-                  <td style={S.td}>{r.description}</td>
-                  <td style={{ ...S.td, ...S.num, fontWeight: 700 }}>{money(r.amount)}</td>
-                  <td style={{ ...S.td, textAlign: "center" }}>
-                    {admin && r.status === "pending" ? (
-                      <button style={{ border: `1px solid ${T.money}`, background: "#fff", color: T.money, borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}
-                        onClick={() => markReceived(r.id)}>Mark received</button>
-                    ) : (
-                      <span style={{ color: r.status === "received" ? T.money : T.muted, fontSize: 12, fontWeight: 600 }}>
-                        {r.status === "received" ? "✓ Received" : "Pending"}
-                      </span>
+                editingId === r.id ? (
+                  <tr key={r.id}>
+                    <td colSpan={admin && isActive ? 5 : 4} style={{ padding: "8px 4px" }}>
+                      {recEditForm}
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={r.id}>
+                    <td style={{ ...S.td, fontWeight: 600 }}>Flat {r.flat}</td>
+                    <td style={S.td}>{r.description}</td>
+                    <td style={{ ...S.td, ...S.num, fontWeight: 700 }}>{money(r.amount)}</td>
+                    <td style={{ ...S.td, textAlign: "center" }}>
+                      {isActive && admin && r.status === "pending" ? (
+                        <button style={{ border: `1px solid ${T.money}`, background: "#fff", color: T.money, borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+                          onClick={() => markReceived(r.id)}>Mark received</button>
+                      ) : (
+                        <span style={{ color: r.status === "received" ? T.money : T.muted, fontSize: 12, fontWeight: 600 }}>
+                          {r.status === "received" ? "✓ Received" : "Pending"}
+                        </span>
+                      )}
+                    </td>
+                    {admin && isActive && (
+                      <td style={{ ...S.td, textAlign: "center" }}>
+                        <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                          <button style={E.editBtn} onClick={() => startEdit(r)}>✏️</button>
+                          <button className="del" style={S.del} onClick={() => remove(r.id)}>✕</button>
+                        </div>
+                      </td>
                     )}
-                  </td>
-                  {admin && <td style={{ ...S.td, textAlign: "center" }}><button className="del" style={S.del} onClick={() => remove(r.id)}>✕</button></td>}
-                </tr>
+                  </tr>
+                )
               ))}
             </tbody>
           </table>
         </div>
       )}
 
-      {admin && !adding && (
-        <button className="add" style={S.addBtn} onClick={() => setAdding(true)}>+ Add receivable</button>
+      {isActive && admin && !adding && (
+        <button className="add" style={S.addBtn} onClick={() => { cancelEdit(); setAdding(true); }}>+ Add receivable</button>
       )}
 
-      {admin && adding && (
+      {isActive && admin && adding && (
         <div style={E.formInline}>
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: T.ink }}>Add receivable</div>
           <div style={S.inputGrid}>
@@ -832,19 +1173,16 @@ function EventPosterButton({ ev }) {
       const totalSpent = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
       const balance = totalCollected - totalSpent;
 
-      // Measure event name for dynamic header height
       ctx.font = "800 48px Poppins, system-ui, sans-serif";
       const nameLines = wrapText(ctx, ev.name, W - pad * 2);
       const headerH = 80 + nameLines.length * 60 + 60;
 
-      // Top 8 donors
       const sortedDonors = [...donations].sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
       const topDonors = sortedDonors.slice(0, 8);
       const moreCount = Math.max(0, donations.length - 8);
       const donRowH = 56;
       const donSecH = topDonors.length > 0 ? 60 + topDonors.length * donRowH + (moreCount > 0 ? 44 : 0) + 24 : 0;
 
-      // Expenses by category with bars
       const catMap = {};
       expenses.forEach((ex) => { const c = ex.category || "misc"; catMap[c] = (catMap[c] || 0) + Number(ex.amount || 0); });
       const cats = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
@@ -852,7 +1190,6 @@ function EventPosterButton({ ev }) {
       const catRowH = 64;
       const catSecH = cats.length > 0 ? 60 + cats.length * catRowH + 24 : 0;
 
-      // Pending receivables
       const pending = receivables.filter((r) => r.status === "pending");
       const recRowH = 56;
       const recSecH = pending.length > 0 ? 60 + pending.length * recRowH + 24 : 0;
@@ -867,7 +1204,6 @@ function EventPosterButton({ ev }) {
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, W, H);
 
-      // ─ Header ─
       const hGrad = ctx.createLinearGradient(0, 0, W, headerH);
       hGrad.addColorStop(0, "#1A6B72");
       hGrad.addColorStop(1, "#0D4A50");
@@ -894,7 +1230,6 @@ function EventPosterButton({ ev }) {
       ctx.font = "500 24px Poppins, system-ui, sans-serif";
       ctx.fillText(`${ev.year} · ${ev.status === "active" ? "Active" : "Closed"}`, pad, hy + 12);
 
-      // ─ Summary strip ─
       const sy = headerH;
       ctx.fillStyle = "#F5F6FA";
       ctx.fillRect(0, sy, W, stripH);
@@ -926,7 +1261,6 @@ function EventPosterButton({ ev }) {
 
       let y = sy + stripH;
 
-      // ─ Donors (top 8) ─
       if (topDonors.length > 0) {
         ctx.fillStyle = "#F5F6FA";
         ctx.fillRect(0, y, W, donSecH);
@@ -963,7 +1297,6 @@ function EventPosterButton({ ev }) {
         y += 24;
       }
 
-      // ─ Expenses by category (horizontal bars) ─
       if (cats.length > 0) {
         ctx.fillStyle = "#FFFFFF";
         ctx.fillRect(0, y, W, catSecH);
@@ -985,11 +1318,9 @@ function EventPosterButton({ ev }) {
           ctx.font = "700 24px Poppins, system-ui, sans-serif";
           const amtStr = `₹${amt.toLocaleString("en-IN")}`;
           ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 26);
-          // Bar track
           ctx.fillStyle = "#EEF0F2";
           roundRect(ctx, pad, ry + 36, maxBarW, 14, 7);
           ctx.fill();
-          // Bar fill
           const barW = Math.max(14, Math.round((amt / maxCatAmt) * maxBarW));
           ctx.fillStyle = "#1A6B72";
           roundRect(ctx, pad, ry + 36, barW, 14, 7);
@@ -998,7 +1329,6 @@ function EventPosterButton({ ev }) {
         y += cats.length * catRowH + 24;
       }
 
-      // ─ Pending receivables ─
       if (pending.length > 0) {
         ctx.fillStyle = "#FFFBF0";
         ctx.fillRect(0, y, W, recSecH);
@@ -1023,7 +1353,6 @@ function EventPosterButton({ ev }) {
         y += pending.length * recRowH + 24;
       }
 
-      // ─ Footer ─
       const fy = H - footerH;
       ctx.fillStyle = goldGrad;
       ctx.fillRect(0, fy, W, 5);
@@ -1072,7 +1401,7 @@ function EventPosterButton({ ev }) {
   );
 }
 
-/* ---- Shared card (local copy to avoid Dashboard import cycle) ---- */
+/* ---- Shared card ---- */
 function ECard({ label, value, note, tone }) {
   const accent = tone === "water" ? T.water : tone === "money" ? T.money : tone === "owed" ? T.owed : T.ink;
   return (
@@ -1093,8 +1422,10 @@ const E = {
   formTitle: { fontFamily: display, fontWeight: 700, fontSize: 16 },
   iconBtn: { border: "none", background: "#F1F1F8", width: 28, height: 28, borderRadius: "50%", cursor: "pointer", fontSize: 12, color: T.inkSoft, flexShrink: 0 },
   closeBtn2: { border: `1.5px solid ${T.owed}`, background: "#fff", color: T.owed, borderRadius: 10, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font },
+  reopenBtn: { border: `1.5px solid ${T.water}`, background: "#fff", color: T.water, borderRadius: 10, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font },
   shareBtn: { background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font },
   ghostBtn: { background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", color: T.inkSoft, fontFamily: font },
+  editBtn: { border: "none", background: "none", color: T.inkSoft, cursor: "pointer", fontSize: 14, padding: "2px 4px", lineHeight: 1, opacity: 0.75 },
   err: { marginTop: 10, background: "#FEF2F2", color: T.owed, padding: "9px 12px", borderRadius: 9, fontSize: 13 },
   hint: { fontSize: 12, color: T.inkSoft, background: T.waterSoft, padding: "8px 12px", borderRadius: 8, marginTop: 6 },
   extTag: { fontSize: 11, background: T.waterSoft, color: T.water, borderRadius: 4, padding: "1px 5px", marginRight: 4 },
@@ -1104,7 +1435,6 @@ const E = {
   posterBtn: { background: "#F5F6FA", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", color: T.ink, fontFamily: font },
 };
 
-// Canvas helper: word wrap
 function wrapText(ctx, text, maxW) {
   const words = text.split(" ");
   const lines = [];
@@ -1117,7 +1447,6 @@ function wrapText(ctx, text, maxW) {
   if (line) lines.push(line);
   return lines;
 }
-// Canvas helper: rounded rectangle path
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);

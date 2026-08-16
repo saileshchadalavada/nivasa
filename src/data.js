@@ -97,13 +97,13 @@ export const updateBuilding = async (bid, patch) => {
 /* ---- membership / join ---- */
 export async function joinBuilding(bid, uid, username) {
   const batch = writeBatch(db);
-  batch.set(memberRef(bid, uid), { username, flat: null, roles: [], residentType: "owner", joinedAt: Date.now() });
+  batch.set(memberRef(bid, uid), { username, flat: null, phone: null, roles: [], residentType: "owner", joinedAt: Date.now() });
   batch.update(userRef(uid), { buildings: arrayUnion(bid) });
   await batch.commit();
 }
 export async function joinBuildingAsGuest(bid, uid, username) {
   const batch = writeBatch(db);
-  batch.set(memberRef(bid, uid), { username, flat: null, roles: [], residentType: "guest", joinedAt: Date.now() });
+  batch.set(memberRef(bid, uid), { username, flat: null, phone: null, roles: [], residentType: "guest", joinedAt: Date.now() });
   batch.update(userRef(uid), { buildings: arrayUnion(bid) });
   await batch.commit();
 }

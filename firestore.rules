@@ -142,8 +142,9 @@ service cloud.firestore {
             && request.resource.data.flat is string
             && request.resource.data.diff(resource.data)
                  .affectedKeys()
-                 .hasOnly(['flat'])
-            && get(
+                 .hasOnly(['flat', 'residentType', 'phone'])
+            && validResidentType(request.resource.data.residentType)
+            && getAfter(
                  /databases/$(database)/documents/buildings/$(bid)/flats/$(request.resource.data.flat)
                ).data.claimedByUid == uid();
         }
