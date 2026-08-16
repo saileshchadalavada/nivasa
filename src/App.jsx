@@ -42,6 +42,7 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [guestJoinError, setGuestJoinError] = useState(null);
   const [guestJoinRetry, setGuestJoinRetry] = useState(0);
+  const [guestJoinComplete, setGuestJoinComplete] = useState(false);
 
   const [config, setConfig] = useState(undefined);
   const [flats, setFlats] = useState([]);
@@ -97,7 +98,7 @@ export default function App() {
     guestJoinStarted.current = true;
     setGuestJoinError(null);
     joinBuildingAsGuest(effectiveGuestBid, user.uid, account.username)
-      .then(() => { console.log("[nivasa] Guest join result: success"); })
+      .then(() => { console.log("[nivasa] Guest join result: success"); setGuestJoinComplete(true); })
       .catch((e) => { console.log("[nivasa] Guest join FAILED:", e); guestJoinStarted.current = false; setGuestJoinError(e?.message || e?.code || "Could not join. Please try again."); });
   }, [isGuestFlowActive, user?.uid, account?.username, effectiveGuestBid, guestJoinRetry]); // eslint-disable-line
 
@@ -136,6 +137,11 @@ export default function App() {
       setConfig(undefined); setFlats([]); setMembers([]); setMembership(undefined);
       setAllWater(null); setAllMaint(null); setActivities(null); setEvents(null); return;
     }
+    // During guest flow, hold off until the server confirms the batch write. Firestore's
+    // local cache can optimistically update account.buildings before batch.commit() resolves,
+    // causing subscriptions to fire before the member doc exists — which permanently kills
+    // the onSnapshot listener with permission-denied.
+    if (isGuestFlowActive && guestJoinStarted.current && !guestJoinComplete) return;
     setConfig(undefined); setMembership(undefined); setAllWater(null); setAllMaint(null);
     setActivities(null); setEvents(null);
     setWaterDirty(false); setMaintDirty(false);
@@ -148,7 +154,7 @@ export default function App() {
       subscribeEvents(effectiveBid, setEvents),
     ];
     return () => unsubs.forEach((u) => u && u());
-  }, [user, effectiveBid]);
+  }, [user, effectiveBid, guestJoinComplete]); // eslint-disable-line
 
   // Subscribe to water/maint ONLY after membership resolves as non-guest.
   // Guests never have access to billing data — subscribing would cause permission
