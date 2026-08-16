@@ -68,7 +68,7 @@ export default function Dashboard({
   const [themeId, _setTheme] = useState(getThemeId());
   const switchTheme = (id) => { setThemeId(id); applyTheme(id); _setTheme(id); document.body.style.background = T.bg; }; // "water" | "maint" | null
 
-  const myName = (meFlat && residential.find((f) => f.flat === meFlat)?.name) || membership.username || "Member";
+  const myName = membership.username || (meFlat && residential.find((f) => f.flat === meFlat)?.name) || "Member";
 
   // BUILD-05: use canonical billing engines instead of local formulas
   const computeWater = (M) => computeWaterEngine(M, allMeters);
