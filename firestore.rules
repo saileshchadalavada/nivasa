@@ -286,10 +286,32 @@ service cloud.firestore {
         allow write: if canEditWater();
       }
 
-      // ── events ──
-      match /events/{e} {
+      // ── events (festival donations & expenses) ──
+      match /events/{eid} {
+        function validEvent(data) {
+          return data.keys().hasOnly([
+               'name', 'year', 'status',
+               'targetAmount', 'openingBalance', 'closingBalance',
+               'donations', 'expenses', 'receivables',
+               'createdAt', 'updatedAt', 'closedAt'
+             ])
+            && data.name is string
+            && data.name.size() >= 1
+            && data.name.size() <= 150
+            && (data.status == 'active' || data.status == 'closed')
+            && data.createdAt is int
+            && data.updatedAt is int;
+        }
+
         allow read: if isMember();
-        allow create, update, delete: if isAdmin();
+
+        allow create: if isAdmin()
+          && validEvent(request.resource.data);
+
+        allow update: if isAdmin()
+          && validEvent(request.resource.data);
+
+        allow delete: if isAdmin();
       }
     }
   }
