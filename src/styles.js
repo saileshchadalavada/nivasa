@@ -38,6 +38,12 @@ body { margin: 0; -webkit-font-smoothing: antialiased; }
 @media (max-width: 600px) {
   header { flex-direction: column !important; align-items: flex-start !important; }
 }
+/* HomeHub card hover lift */
+.card-hub { cursor: pointer; }
+.card-hub:hover { transform: translateY(-3px) !important; box-shadow: 0 12px 32px rgba(0,0,0,.14) !important; }
+.card-hub:active { transform: translateY(-1px) !important; }
+/* Improved focus ring for all inputs */
+input:focus, select:focus, textarea:focus { outline: 2px solid rgba(75,63,192,.35); outline-offset: 0; }
 `;
 
 /* Returns a fresh styles object from current T values — call on every render

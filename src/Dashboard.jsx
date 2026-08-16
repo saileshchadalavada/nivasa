@@ -158,7 +158,7 @@ export default function Dashboard({
       {/* ===== MOBILE HEADER ===== */}
       {mobile ? (
         <>
-        <header style={MB.header}>
+        <header style={{ ...MB.header, background: `linear-gradient(135deg, ${T.brandDark} 0%, ${T.water} 100%)` }}>
           <button onClick={() => setMenuOpen(true)} style={MB.hamburger}>☰</button>
           <div style={MB.headerCenter}>
             <div style={{ fontSize: 10, opacity: 0.7, letterSpacing: ".05em", textTransform: "uppercase" }}>Nivasa</div>
@@ -176,7 +176,7 @@ export default function Dashboard({
         </>
       ) : (
         <>
-        <header style={S.header}>
+        <header style={{ ...S.header, background: `linear-gradient(135deg, ${T.brandDark} 0%, ${T.water} 100%)` }}>
           <div style={S.headLeft}>
             <div onClick={() => setTab("home")} style={{ ...S.mark, background: T.brandDark, cursor: "pointer" }} title="Home">
               {[5,4,3,2,1].map((fl) => (<div key={fl} style={S.markRow}>{[0,1,2].map((c) => <span key={c} style={S.markDot} />)}</div>))}
@@ -361,7 +361,7 @@ export default function Dashboard({
       {(canWater || canMaint) && dirty && ["home", "dashboard", "water", "maintenance"].includes(tab) && (
         <div style={S.saveBar}>
           <div style={S.saveBarInner}>
-            <span>${t("unsavedChanges")}</span>
+            <span>{t("unsavedChanges")}</span>
             <span style={{ display: "flex", gap: 10 }}>
               <button className="ghostBtn" style={S.ghostBtn} onClick={onDiscard} disabled={saving}>Undo</button>
               <button className="primaryBtn" style={S.primaryBtn} onClick={onSave} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
@@ -1566,9 +1566,17 @@ function FlatStatement({ flat, water, maint, residential, config, embedded }) {
 /* ============================ small parts ============================ */
 function Card({ label, value, note, tone }) {
   const accent = tone === "water" ? T.water : tone === "money" ? T.money : tone === "owed" ? T.owed : T.ink;
-  return (<div style={S.card}><div style={S.cardLabel}>{label}</div><div style={{ ...S.cardValue, color: accent }}>{value}</div><div style={S.cardNote}>{note}</div></div>);
+  return (
+    <div style={{ ...S.card, borderTop: `3px solid ${accent}` }}>
+      <div style={S.cardLabel}>{label}</div>
+      <div style={{ ...S.cardValue, color: accent }}>{value}</div>
+      <div style={S.cardNote}>{note}</div>
+    </div>
+  );
 }
-function SectionTitle({ children }) { return <h2 style={S.section}>{children}</h2>; }
+function SectionTitle({ children }) {
+  return <h2 style={{ ...S.section, borderLeft: `3px solid ${T.water}`, paddingLeft: 12 }}>{children}</h2>;
+}
 function ViewNote({ children }) { return <div style={S.viewNote}>{children}</div>; }
 function NumField({ label, sub, value, onChange, prefix, step, readOnly }) {
   return (
@@ -1701,7 +1709,7 @@ function HomeHub({ myName, meFlat, admin, mobile, t, waterLabel, maintLabel, myW
       </div>
       <div style={{ display: "grid", gridTemplateColumns: mobile ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: mobile ? 10 : 14 }}>
         {cards.map((c) => (
-          <button key={c.key} onClick={() => onNav(c.key)} style={H.card}>
+          <button key={c.key} onClick={() => onNav(c.key)} className="card-hub" style={H.card}>
             <div style={{ fontSize: mobile ? 28 : 34, marginBottom: 6 }}>{c.icon}</div>
             <div style={H.cardLabel}>{c.label}</div>
             <div style={H.cardSub}>{c.sub}</div>
