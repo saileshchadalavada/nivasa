@@ -12,6 +12,7 @@ import History from "./History";
 import CsvUpload from "./CsvUpload";
 import Broadcast from "./Broadcast";
 import Community from "./Community";
+import Events from "./Events";
 import { styles as S, T, css, display, mono, font, applyTheme } from "./styles";
 import { THEME_LIST, getThemeId, setThemeId } from "./theme";
 import { useT, LANGUAGES } from "./i18n";
@@ -30,7 +31,7 @@ function useIsMobile(breakpoint = 640) {
 
 
 export default function Dashboard({
-  user, membership, config, bid, flats, members, activities,
+  user, membership, config, bid, flats, members, activities, events,
   waterMonth, maintMonth, pastWater, pastMaint, patchWater, patchMaint,
   displayWater, displayMaint, togglePaidWater, togglePaidMaint,
   waterList, maintList, selWaterId, selMaintId, onSelectWater, onSelectMaint, isLatestWater, isLatestMaint,
@@ -147,6 +148,7 @@ export default function Dashboard({
   const tabs = [
     ["home", "🏠"], ["dashboard", t("overview")], ["water", t("water")], ["maintenance", t("maintenance")],
     ...(meFlat ? [["flat", t("myFlat")]] : []), ["history", t("history")],
+    ["events", "🎉 Events"],
     ["community", t("community")],
     ...(admin ? [["members", t("members")]] : []),
   ];
@@ -248,7 +250,7 @@ export default function Dashboard({
               {tabs.filter(([k]) => k !== "home").map(([k, l]) => (
                 <button key={k} onClick={() => { setTab(k); setMenuOpen(false); }}
                   style={{ ...MB.drawerItem, ...(tab === k ? MB.drawerItemActive : {}) }}>
-                  {k === "dashboard" ? "📋" : k === "water" ? "💧" : k === "maintenance" ? "🔧" : k === "flat" ? "🏠" : k === "history" ? "📜" : k === "community" ? "📊" : k === "members" ? "👥" : ""} {l}
+                  {k === "dashboard" ? "📋" : k === "water" ? "💧" : k === "maintenance" ? "🔧" : k === "flat" ? "🏠" : k === "history" ? "📜" : k === "events" ? "🎉" : k === "community" ? "📊" : k === "members" ? "👥" : ""} {l}
                 </button>
               ))}
             </div>
@@ -306,6 +308,7 @@ export default function Dashboard({
             myWaterBill={dispWater.rows.find((r) => r.flat === meFlat)?.bill || 0}
             maintPerFlat={dispMaint.perFlat}
             activityCount={(activities || []).filter((a) => Date.now() - (a.createdAt || 0) < 7 * 86400000).length}
+            eventCount={(events || []).length}
             onNav={setTab}
           />
         )}
@@ -343,6 +346,7 @@ export default function Dashboard({
         )}
         {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} config={config} />}
         {tab === "history" && <History flat={meFlat} residential={residential} allFlats={allMeters} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} corpusMonthly={Number(config?.corpus?.monthly || 0)} />}
+        {tab === "events" && <Events bid={bid} events={events || []} membership={membership} flats={flats} admin={admin} mobile={mobile} />}
         {tab === "community" && <Community bid={bid} activities={activities} membership={membership} members={members} config={config} admin={admin} mobile={mobile} initialActivityId={initialActivityId} />}
         {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} onConfirm={(opts) => setConfirmModal(opts)} />}
       </main>
@@ -1690,12 +1694,13 @@ function Drawer({ children, onClose }) {
 }
 
 /* ---- Home hub — icon grid with live data summaries ---- */
-function HomeHub({ myName, meFlat, admin, mobile, t, waterLabel, maintLabel, myWaterBill, maintPerFlat, activityCount, onNav }) {
+function HomeHub({ myName, meFlat, admin, mobile, t, waterLabel, maintLabel, myWaterBill, maintPerFlat, activityCount, eventCount, onNav }) {
   const cards = [
     { key: "water", icon: "💧", label: t("water"), sub: waterLabel || t("current"), value: myWaterBill > 0 ? money(myWaterBill) : t("view"), color: "#4B86E0" },
     { key: "maintenance", icon: "🔧", label: t("maintenance"), sub: maintLabel || t("current"), value: maintPerFlat > 0 ? money(maintPerFlat) : t("view"), color: "#E8883C" },
     { key: "dashboard", icon: "📋", label: t("overview"), sub: t("billsPayments"), value: t("view"), color: "#6B5CE7" },
     ...(meFlat ? [{ key: "flat", icon: "🏠", label: t("myFlat"), sub: `${t("flat")} ${meFlat}`, value: t("view"), color: "#2FA84F" }] : []),
+    { key: "events", icon: "🎉", label: "Events", sub: eventCount > 0 ? `${eventCount} event${eventCount === 1 ? "" : "s"}` : "Festivals & funds", value: t("view"), color: "#D08C30" },
     { key: "community", icon: "📊", label: t("community"), sub: activityCount > 0 ? `${activityCount} ${t("recentActivity")}` : t("pollsUpdates"), value: activityCount > 0 ? `${activityCount} new` : t("view"), color: "#D64B8A" },
     { key: "history", icon: "📜", label: t("history"), sub: t("pastMonths"), value: t("view"), color: "#8A8A9A" },
     ...(admin ? [{ key: "members", icon: "👥", label: t("members"), sub: t("rolesFlats"), value: t("manage"), color: "#B07A0E" }] : []),

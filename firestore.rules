@@ -285,6 +285,12 @@ service cloud.firestore {
         allow read: if isMember();
         allow write: if canEditWater();
       }
+
+      // ── events ──
+      match /events/{e} {
+        allow read: if isMember();
+        allow create, update, delete: if isAdmin();
+      }
     }
   }
 }

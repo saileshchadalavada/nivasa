@@ -26,6 +26,8 @@ const presetsCol = (bid) => collection(db, "buildings", bid, "costPresets");
 const activitiesCol = (bid) => collection(db, "buildings", bid, "activities");
 const activityRef = (bid, id) => doc(db, "buildings", bid, "activities", id);
 const presetRef = (bid, id) => doc(db, "buildings", bid, "costPresets", id);
+const eventsCol = (bid) => collection(db, "buildings", bid, "events");
+const eventRef = (bid, id) => doc(db, "buildings", bid, "events", id);
 const votesCol = (bid, aid) => collection(db, "buildings", bid, "activities", aid, "votes");
 const voteRef = (bid, aid, uid) => doc(db, "buildings", bid, "activities", aid, "votes", uid);
 const publicBldRef = (bid) => doc(db, "publicBuildings", bid);
@@ -462,12 +464,24 @@ export async function removeMember(bid, uid, flat) {
   await batch.commit();
 }
 
+/* ---- EVENTS (festival donations & expenses) ---- */
+export const subscribeEvents = (bid, cb) =>
+  onSnapshot(query(eventsCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+export async function createEvent(bid, data) {
+  const ref = doc(eventsCol(bid));
+  await setDoc(ref, { ...data, createdAt: Date.now(), updatedAt: Date.now() });
+  return ref.id;
+}
+export const updateEvent = (bid, id, patch) =>
+  updateDoc(eventRef(bid, id), { ...patch, updatedAt: Date.now() });
+export const deleteEvent = (bid, id) => deleteDoc(eventRef(bid, id));
+
 /* Admin-only: delete an entire building — every subcollection doc and the
    config document. The deleting admin's own account is cleaned up via
    currentUid; other members' stale building references are pruned on
    their next login via the self-heal effect in App.jsx (SEC-01). */
 export async function deleteBuilding(bid, currentUid) {
-  const cols = [flatsCol(bid), waterCol(bid), maintCol(bid), membersCol(bid), activitiesCol(bid), presetsCol(bid)];
+  const cols = [flatsCol(bid), waterCol(bid), maintCol(bid), membersCol(bid), activitiesCol(bid), presetsCol(bid), eventsCol(bid)];
   // delete all subcollection docs (batched)
   for (const c of cols) {
     const snap = await getDocs(c);
