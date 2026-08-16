@@ -100,6 +100,7 @@ export default function App() {
     return (account.buildings || [])[0] || "";
   }, [account, activeBid, urlBid, joinContext]);
 
+  // Subscribe to core building data (always, regardless of membership type)
   useEffect(() => {
     if (!user || !effectiveBid) {
       setConfig(undefined); setFlats([]); setMembers([]); setMembership(undefined);
@@ -112,13 +113,28 @@ export default function App() {
       subscribeFlats(effectiveBid, setFlats),
       subscribeMembers(effectiveBid, setMembers),
       subscribeMembership(effectiveBid, user.uid, setMembership),
-      subscribeWaterPeriods(effectiveBid, setAllWater),
-      subscribeMaintPeriods(effectiveBid, setAllMaint),
       subscribeActivities(effectiveBid, setActivities),
       subscribeEvents(effectiveBid, setEvents),
     ];
     return () => unsubs.forEach((u) => u && u());
   }, [user, effectiveBid]);
+
+  // Subscribe to water/maint ONLY after membership resolves as non-guest.
+  // Guests never have access to billing data — subscribing would cause permission
+  // errors that leave allWater/allMaint null and block the loading guard forever.
+  useEffect(() => {
+    if (!effectiveBid || membership === undefined) return;
+    if (membership === null || membership?.residentType === "guest") {
+      setAllWater([]);
+      setAllMaint([]);
+      return;
+    }
+    const unsubs = [
+      subscribeWaterPeriods(effectiveBid, setAllWater),
+      subscribeMaintPeriods(effectiveBid, setAllMaint),
+    ];
+    return () => unsubs.forEach((u) => u && u());
+  }, [effectiveBid, membership?.residentType]); // eslint-disable-line
 
   /* SEC-01 self-heal: when the user's membership is gone (admin removed them)
      or the building itself was deleted, clean the stale building ID from their
@@ -149,15 +165,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [user, effectiveBid, membership, config]); // eslint-disable-line
 
-  // Guest fast-path: once membership resolves as guest, mark water/maint as ready
-  // so the loading guard doesn't wait for subscriptions that guests don't need.
-  useEffect(() => {
-    if (membership?.residentType !== "guest") return;
-    setAllWater((v) => v === null ? [] : v);
-    setAllMaint((v) => v === null ? [] : v);
-  }, [membership?.residentType]); // eslint-disable-line
-
-  const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
+const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
   const sortedMaint = useMemo(() => newest(allMaint || []), [allMaint]);
 
   const latestDated = (arr) => { const d = arr.filter((p) => p.periodEnd); return d.length ? d.reduce((a, b) => ((a.periodEnd || "") >= (b.periodEnd || "") ? a : b)) : (arr[arr.length - 1] || null); };
@@ -352,11 +360,8 @@ export default function App() {
       }} />;
   }
 
-  if (!config || membership === undefined || allWater === null || allMaint === null ||
-      (!isGuest && (!waterMonth || !maintMonth))) {
-    if (membership === null) {
-      return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
-    }
+  if (!config || membership === undefined ||
+      (!isGuest && (allWater === null || allMaint === null || !waterMonth || !maintMonth))) {
     return <Splash text="Loading ledger…" />;
   }
 
