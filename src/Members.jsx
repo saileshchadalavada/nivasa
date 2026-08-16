@@ -13,7 +13,8 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
     setMemberRoles(bid, u.uid, next);
   };
 
-  // DB-05: use atomic transaction for flat assignment
+  // DB-05: use atomic transaction for flat assignment.
+  // When assigning a flat to a guest, also promote residentType → "owner".
   const handleAssignFlat = async (u, newFlat) => {
     try {
       await assignMemberFlat({
@@ -22,6 +23,9 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
         oldFlat: u.flat || null,
         newFlat: newFlat || null,
       });
+      if (newFlat && u.residentType === "guest") {
+        await updateMembership(bid, u.uid, { residentType: "owner" });
+      }
     } catch (e) {
       const code = e?.message || "";
       if (code === "flat-already-claimed") {
@@ -56,34 +60,26 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                       {typeLabel || "—"}{!isGuestMember && !hasRole && <span style={M.memberTag}>view-only</span>}
                     </div>
                   </div>
-                  {isGuestMember ? (
-                    <span style={{ fontSize: 12, color: T.muted }}>No flat</span>
-                  ) : (
-                    <select className="cell" style={{ ...S.cellSelect, fontSize: 13 }} value={u.flat || ""}
-                      onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
-                      <option value="">— none —</option>
-                      {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
-                    </select>
-                  )}
+                  <select className="cell" style={{ ...S.cellSelect, fontSize: 13 }} value={u.flat || ""}
+                    onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
+                    <option value="">— none —</option>
+                    {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
+                  </select>
                 </div>
-                {!isGuestMember && (
-                  <div style={{ marginBottom: 8 }}>
-                    <input className="cell" style={{ ...S.cellInput, width: "100%", fontSize: 13 }}
-                      value={u.phone || ""} placeholder="Phone number"
-                      onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
-                  </div>
-                )}
-                {!isGuestMember && (
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 60 }}>Treasurer</span>
-                    <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />
-                    <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Water</span>
-                    <Check on={u.roles?.includes("water")} onClick={() => toggleRole(u, "water")} />
-                    <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Admin</span>
-                    {isFounder ? <span style={{ color: T.muted, fontSize: 12 }}>always</span>
-                      : <Check on={u.roles?.includes("admin")} onClick={() => toggleRole(u, "admin")} />}
-                  </div>
-                )}
+                <div style={{ marginBottom: 8 }}>
+                  <input className="cell" style={{ ...S.cellInput, width: "100%", fontSize: 13 }}
+                    value={u.phone || ""} placeholder="Phone number"
+                    onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 60 }}>Treasurer</span>
+                  <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />
+                  <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Water</span>
+                  <Check on={u.roles?.includes("water")} onClick={() => toggleRole(u, "water")} />
+                  <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Admin</span>
+                  {isFounder ? <span style={{ color: T.muted, fontSize: 12 }}>always</span>
+                    : <Check on={u.roles?.includes("admin")} onClick={() => toggleRole(u, "admin")} />}
+                </div>
                 {!isFounder && (
                   <button style={{ border: "none", background: "none", color: T.owed, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: font, marginTop: 8, padding: 0 }}
                     onClick={() => onConfirm && onConfirm({
@@ -123,24 +119,16 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                     {isGuestMember && <span style={M.familyTag}>Family</span>}
                   </td>
                   <td style={{ ...S.td, padding: "4px 8px" }}>
-                    {isGuestMember ? (
-                      <span style={{ fontSize: 12, color: T.muted }}>—</span>
-                    ) : (
-                      <select className="cell" style={S.cellSelect} value={u.flat || ""}
-                        onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
-                        <option value="">— none —</option>
-                        {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
-                      </select>
-                    )}
+                    <select className="cell" style={S.cellSelect} value={u.flat || ""}
+                      onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
+                      <option value="">— none —</option>
+                      {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
+                    </select>
                   </td>
                   <td style={{ ...S.td, padding: "4px 8px" }}>
-                    {isGuestMember ? (
-                      <span style={{ fontSize: 12, color: T.muted }}>—</span>
-                    ) : (
-                      <input className="cell" style={{ ...S.cellInput, width: 130, fontSize: 12.5 }}
-                        value={u.phone || ""} placeholder="+91..."
-                        onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
-                    )}
+                    <input className="cell" style={{ ...S.cellInput, width: 130, fontSize: 12.5 }}
+                      value={u.phone || ""} placeholder="+91..."
+                      onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
                   </td>
                   <td style={{ ...S.td, textTransform: "capitalize", color: T.inkSoft }}>
                     {(() => {
@@ -150,16 +138,13 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                     })()}
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
-                    {isGuestMember ? <span style={{ color: T.muted, fontSize: 12 }}>—</span>
-                      : <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />}
+                    <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
-                    {isGuestMember ? <span style={{ color: T.muted, fontSize: 12 }}>—</span>
-                      : <Check on={u.roles?.includes("water")} onClick={() => toggleRole(u, "water")} />}
+                    <Check on={u.roles?.includes("water")} onClick={() => toggleRole(u, "water")} />
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
-                    {isGuestMember ? <span style={{ color: T.muted, fontSize: 12 }}>—</span>
-                      : isFounder ? <span style={{ color: T.muted, fontSize: 12 }}>always</span>
+                    {isFounder ? <span style={{ color: T.muted, fontSize: 12 }}>always</span>
                       : <Check on={u.roles?.includes("admin")} onClick={() => toggleRole(u, "admin")} />}
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
