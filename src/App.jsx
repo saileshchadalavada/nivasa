@@ -43,8 +43,8 @@ export default function App() {
   const [allWater, setAllWater] = useState(null);
   const [allMaint, setAllMaint] = useState(null);
   const [bnames, setBnames] = useState({});
-  const [activities, setActivities] = useState([]);
-  const [events, setEvents] = useState([]);
+  const [activities, setActivities] = useState(null);
+  const [events, setEvents] = useState(null);
 
   const [waterMonth, setWaterMonth] = useState(null);
   const [maintMonth, setMaintMonth] = useState(null);
@@ -104,9 +104,10 @@ export default function App() {
   useEffect(() => {
     if (!user || !effectiveBid) {
       setConfig(undefined); setFlats([]); setMembers([]); setMembership(undefined);
-      setAllWater(null); setAllMaint(null); setActivities([]); setEvents([]); return;
+      setAllWater(null); setAllMaint(null); setActivities(null); setEvents(null); return;
     }
     setConfig(undefined); setMembership(undefined); setAllWater(null); setAllMaint(null);
+    setActivities(null); setEvents(null);
     setWaterDirty(false); setMaintDirty(false);
     const unsubs = [
       subscribeBuilding(effectiveBid, setConfig),
@@ -360,7 +361,7 @@ const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
       }} />;
   }
 
-  if (!config || membership === undefined ||
+  if (!config || membership === undefined || activities === null || events === null ||
       (!isGuest && (allWater === null || allMaint === null || !waterMonth || !maintMonth))) {
     return <Splash text="Loading ledger…" />;
   }
