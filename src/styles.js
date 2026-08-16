@@ -10,16 +10,16 @@ export function applyTheme(id) {
 
 const font = "'Inter', system-ui, sans-serif";
 const display = "'Poppins', system-ui, sans-serif";
-const mono = "'Spline Sans Mono', monospace";
+const mono = "'Courier New', monospace";
 export { font, display, mono };
 
 export const css = `
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Spline+Sans+Mono:wght@500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 * { box-sizing: border-box; }
 body { margin: 0; -webkit-font-smoothing: antialiased; }
 .row { cursor: pointer; transition: background .12s; }
 .row:hover { background: rgba(75,63,192,.06) !important; }
-.cell { font-family: 'Spline Sans Mono', monospace; }
+.cell { font-family: 'Courier New', monospace; }
 .cell:focus { outline: 2px solid rgba(75,63,192,.5); outline-offset: -1px; }
 .tog:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .del { opacity: .5; transition: opacity .12s; }
