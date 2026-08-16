@@ -457,7 +457,9 @@ export async function removeMember(bid, uid, flat) {
 
 /* ---- EVENTS (festival donations & expenses) ---- */
 export const subscribeEvents = (bid, cb) =>
-  onSnapshot(query(eventsCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+  onSnapshot(query(eventsCol(bid)),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    (err) => { console.error("subscribeEvents failed:", err.code, err.message); cb([]); });
 export async function createEvent(bid, data) {
   const ref = doc(eventsCol(bid));
   await setDoc(ref, { ...data, createdAt: Date.now(), updatedAt: Date.now() });
