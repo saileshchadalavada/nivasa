@@ -140,6 +140,14 @@ export default function App() {
       });
   }, [user, effectiveBid, membership, config]);
 
+  // Guest fast-path: once membership resolves as guest, mark water/maint as ready
+  // so the loading guard doesn't wait for subscriptions that guests don't need.
+  useEffect(() => {
+    if (membership?.residentType !== "guest") return;
+    setAllWater((v) => v === null ? [] : v);
+    setAllMaint((v) => v === null ? [] : v);
+  }, [membership?.residentType]); // eslint-disable-line
+
   const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
   const sortedMaint = useMemo(() => newest(allMaint || []), [allMaint]);
 
@@ -335,7 +343,8 @@ export default function App() {
       }} />;
   }
 
-  if (!config || membership === undefined || allWater === null || allMaint === null || !waterMonth || !maintMonth) {
+  if (!config || membership === undefined || allWater === null || allMaint === null ||
+      (!isGuest && (!waterMonth || !maintMonth))) {
     if (membership === null) {
       return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
     }

@@ -211,7 +211,7 @@ export async function assignMemberFlat({ bid, memberUid, oldFlat, newFlat }) {
 
 /* ---- WATER periods ---- */
 export const subscribeWaterPeriods = (bid, cb) =>
-  onSnapshot(query(waterCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+  onSnapshot(query(waterCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), () => cb([]));
 export const saveWaterPeriod = (bid, id, data) => {
   const { id: _d, ...body } = data;
   return setDoc(waterRef(bid, id), { ...body, updatedAt: Date.now() });
@@ -256,7 +256,7 @@ export async function startNextWaterPeriod(bid, current) {
 
 /* ---- MAINTENANCE periods ---- */
 export const subscribeMaintPeriods = (bid, cb) =>
-  onSnapshot(query(maintCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+  onSnapshot(query(maintCol(bid)), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), () => cb([]));
 export const saveMaintPeriod = (bid, id, data) => {
   const { id: _d, ...body } = data;
   return setDoc(maintRef(bid, id), { ...body, updatedAt: Date.now() });
