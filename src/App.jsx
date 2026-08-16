@@ -68,8 +68,9 @@ export default function App() {
   const isGuestFlow = !!(urlBid && (urlTab === "community" || urlTab === "events") && !urlCode);
   const guestJoinStarted = useRef(false);
 
-  // Persist guest bid to sessionStorage on mount so it survives auth redirects that clear URL params.
-  useEffect(() => { if (isGuestFlow && urlBid) setGuestSS(urlBid); }, []); // eslint-disable-line
+  // Persist guest bid to sessionStorage SYNCHRONOUSLY so it's available on the very first render,
+  // before any effects run. setGuestSS is idempotent and doesn't trigger React state changes.
+  if (isGuestFlow && urlBid) setGuestSS(urlBid);
   const ssGuestBid = getGuestSS();
   // isGuestFlowActive stays true even after URL is cleared (e.g. OAuth redirect) as long as
   // sessionStorage still holds the bid.
