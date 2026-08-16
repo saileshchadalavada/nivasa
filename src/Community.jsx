@@ -482,20 +482,21 @@ function PosterButton({ rich, activityId, title, body, appLink, config }) {
   const generate = async () => {
     setBusy(true);
     try {
-      const W = 1080, pad = 48;
+      const W = 1080, pad = 40;
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
 
-      // Measure text height to auto-size canvas
-      ctx.font = "600 28px Poppins, system-ui, sans-serif";
-      const bodyLines = body ? wrapText(ctx, body, W - pad * 2, 32) : [];
-      const titleLines = wrapText(ctx, title, W - pad * 2, 40);
+      // Measure at draw-size for accurate line counts
+      ctx.font = "600 26px Poppins, system-ui, sans-serif";
+      const bodyLines = body ? wrapText(ctx, body, W - pad * 2) : [];
+      ctx.font = "800 48px Poppins, system-ui, sans-serif";
+      const titleLines = wrapText(ctx, title, W - pad * 2);
 
-      const headerH = 200;
-      const titleH = titleLines.length * 48 + 24;
+      const headerH = 220;
+      const titleH = titleLines.length * 60 + 24;
       const bodyH = bodyLines.length > 0 ? bodyLines.length * 38 + 30 : 0;
-      const badgeH = rich ? 70 : 0;
-      const footerH = 90;
+      const badgeH = rich ? 80 : 0;
+      const footerH = 100;
       const H = headerH + titleH + bodyH + badgeH + footerH + pad;
 
       canvas.width = W;
@@ -519,47 +520,43 @@ function PosterButton({ rich, activityId, title, body, appLink, config }) {
       ctx.fillRect(0, headerH - 5, W, 5);
 
       // Building name
-      ctx.fillStyle = "rgba(255,255,255,0.5)";
-      ctx.font = "600 14px Poppins, system-ui, sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.font = "600 20px Poppins, system-ui, sans-serif";
       ctx.letterSpacing = "2px";
       ctx.fillText((config?.name || "NIVASA").toUpperCase(), pad, 50);
+      ctx.letterSpacing = "0px";
 
-      // Nivasa branding
+      // "Minutes of Meeting" heading
       ctx.fillStyle = "#FFFFFF";
-      ctx.font = "800 36px Poppins, system-ui, sans-serif";
-      ctx.fillText("📋 Minutes of Meeting", pad, 100);
+      ctx.font = "800 52px Poppins, system-ui, sans-serif";
+      ctx.fillText("📋 Minutes of Meeting", pad, 130);
 
       // Date
-      ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.font = "400 18px Poppins, system-ui, sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.90)";
+      ctx.font = "500 24px Poppins, system-ui, sans-serif";
       const dateStr = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
-      ctx.fillText(dateStr, pad, 135);
-
-      // App link in header
-      ctx.fillStyle = "rgba(255,255,255,0.4)";
-      ctx.font = "500 13px Poppins, system-ui, sans-serif";
-      ctx.fillText("nivasa", pad, 175);
+      ctx.fillText(dateStr, pad, 178);
 
       // Title
-      let y = headerH + 40;
+      let y = headerH + 44;
       ctx.fillStyle = "#1C2B2D";
-      ctx.font = "700 32px Poppins, system-ui, sans-serif";
+      ctx.font = "800 48px Poppins, system-ui, sans-serif";
       titleLines.forEach((line) => {
         ctx.fillText(line, pad, y);
-        y += 48;
+        y += 60;
       });
 
       // Body preview
       if (bodyLines.length > 0) {
         y += 10;
-        ctx.fillStyle = "#6B7B7D";
-        ctx.font = "400 22px Poppins, system-ui, sans-serif";
-        const maxBodyLines = bodyLines.slice(0, 5); // cap at 5 lines
+        ctx.fillStyle = "#2D3B3E";
+        ctx.font = "600 26px Poppins, system-ui, sans-serif";
+        const maxBodyLines = bodyLines.slice(0, 6);
         maxBodyLines.forEach((line, i) => {
           let displayLine = line;
-          if (i === maxBodyLines.length - 1 && bodyLines.length > 5) displayLine += "…";
+          if (i === maxBodyLines.length - 1 && bodyLines.length > 6) displayLine += "…";
           ctx.fillText(displayLine, pad, y);
-          y += 34;
+          y += 38;
         });
       }
 
@@ -569,12 +566,12 @@ function PosterButton({ rich, activityId, title, body, appLink, config }) {
         const icon = rich.type === "html" ? "🌐" : rich.type === "pdf" ? "📄" : rich.type === "docx" ? "📝" : rich.type === "image" ? "🖼️" : "📝";
         const label = rich.type === "html" ? "Full formatted page" : "Full text content";
         ctx.fillStyle = "#E8F4F5";
-        roundRect(ctx, pad, y - 22, W - pad * 2, 44, 10);
+        roundRect(ctx, pad, y - 28, W - pad * 2, 56, 10);
         ctx.fill();
         ctx.fillStyle = "#1A6B72";
-        ctx.font = "600 18px Poppins, system-ui, sans-serif";
+        ctx.font = "700 22px Poppins, system-ui, sans-serif";
         ctx.fillText(`${icon}  ${label} — open in app to view`, pad + 16, y + 2);
-        y += 44;
+        y += 60;
       }
 
       // Footer
@@ -582,14 +579,14 @@ function PosterButton({ rich, activityId, title, body, appLink, config }) {
       ctx.fillStyle = "#1A6B72";
       ctx.fillRect(0, fy, W, footerH);
       ctx.fillStyle = goldGrad;
-      ctx.fillRect(0, fy, W, 4);
+      ctx.fillRect(0, fy, W, 5);
       ctx.fillStyle = "#FFFFFF";
-      ctx.font = "700 22px Poppins, system-ui, sans-serif";
-      ctx.fillText("📖 Read full details on Nivasa", pad, fy + 38);
-      ctx.fillStyle = "rgba(255,255,255,0.6)";
-      ctx.font = "400 15px Poppins, system-ui, sans-serif";
+      ctx.font = "700 28px Poppins, system-ui, sans-serif";
+      ctx.fillText("📖 Read full details on Nivasa", pad, fy + 42);
+      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      ctx.font = "500 20px Poppins, system-ui, sans-serif";
       const shortLink = appLink.length > 80 ? appLink.slice(0, 80) + "…" : appLink;
-      ctx.fillText(shortLink, pad, fy + 65);
+      ctx.fillText(shortLink, pad, fy + 74);
 
       // Download
       const link = document.createElement("a");

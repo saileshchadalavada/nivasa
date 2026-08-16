@@ -248,6 +248,7 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button style={E.shareBtn} onClick={shareWhatsApp}>💬 Share</button>
+          <EventPosterButton ev={ev} />
           {admin && ev.status === "active" && (
             <button style={E.closeBtn2} onClick={closeEvent}>Close event</button>
           )}
@@ -823,6 +824,232 @@ function ReceivablesTab({ ev, admin, mobile, residential, onSave }) {
   );
 }
 
+/* ---- Event Poster Button ---- */
+function EventPosterButton({ ev }) {
+  const [busy, setBusy] = useState(false);
+
+  const generate = async () => {
+    setBusy(true);
+    try {
+      const W = 1080, pad = 40;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+
+      const donations = ev.donations || [];
+      const expenses = ev.expenses || [];
+      const receivables = ev.receivables || [];
+
+      const totalCollected = donations.reduce((s, d) => s + Number(d.amount || 0), 0);
+      const totalSpent = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+      const balance = totalCollected - totalSpent;
+
+      // Measure event name for dynamic header height
+      ctx.font = "800 48px Poppins, system-ui, sans-serif";
+      const nameLines = wrapText(ctx, ev.name, W - pad * 2);
+      const headerH = 80 + nameLines.length * 60 + 60;
+
+      // Donors: top 12 by amount
+      const topDonors = [...donations]
+        .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+        .slice(0, 12);
+      const rowH = 52;
+      const donSecH = topDonors.length > 0 ? 56 + topDonors.length * rowH + 24 : 0;
+
+      // Expenses by category
+      const catMap = {};
+      expenses.forEach((ex) => { const c = ex.category || "misc"; catMap[c] = (catMap[c] || 0) + Number(ex.amount || 0); });
+      const cats = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+      const catSecH = cats.length > 0 ? 56 + cats.length * rowH + 24 : 0;
+
+      // Pending receivables
+      const pending = receivables.filter((r) => r.status === "pending");
+      const recSecH = pending.length > 0 ? 56 + pending.length * rowH + 24 : 0;
+
+      const stripH = 190;
+      const footerH = 100;
+      const H = headerH + stripH + donSecH + catSecH + recSecH + footerH;
+
+      canvas.width = W;
+      canvas.height = H;
+
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, W, H);
+
+      // ─ Header ─
+      const hGrad = ctx.createLinearGradient(0, 0, W, headerH);
+      hGrad.addColorStop(0, "#1A6B72");
+      hGrad.addColorStop(1, "#0D4A50");
+      ctx.fillStyle = hGrad;
+      ctx.fillRect(0, 0, W, headerH);
+
+      const goldGrad = ctx.createLinearGradient(0, 0, W, 0);
+      goldGrad.addColorStop(0, "#C9A84C"); goldGrad.addColorStop(0.5, "#E8C96A"); goldGrad.addColorStop(1, "#C9A84C");
+      ctx.fillStyle = goldGrad;
+      ctx.fillRect(0, headerH - 5, W, 5);
+
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.font = "600 22px Poppins, system-ui, sans-serif";
+      ctx.letterSpacing = "3px";
+      ctx.fillText("🎉  EVENT SUMMARY", pad, 52);
+      ctx.letterSpacing = "0px";
+
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "800 48px Poppins, system-ui, sans-serif";
+      let hy = 110;
+      nameLines.forEach((line) => { ctx.fillText(line, pad, hy); hy += 60; });
+
+      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      ctx.font = "500 26px Poppins, system-ui, sans-serif";
+      ctx.fillText(`${ev.year} · ${ev.status === "active" ? "Active" : "Closed"}`, pad, hy + 12);
+
+      // ─ Summary strip ─
+      const sy = headerH;
+      ctx.fillStyle = "#F5F6FA";
+      ctx.fillRect(0, sy, W, stripH);
+
+      const cardLabels = ["Opening Balance", "Total Collected", "Total Spent", "Balance"];
+      const cardAmounts = [ev.openingBalance || 0, totalCollected, totalSpent, balance];
+      const cardColors = ["#1C2B2D", "#1A6B72", "#D94343", balance >= 0 ? "#1A6B72" : "#D94343"];
+      const cardNotes = ["carry forward", `${donations.length} entries`, `${expenses.length} expenses`, balance >= 0 ? "available" : "shortfall"];
+      const gap = 12;
+      const cardW = Math.floor((W - pad * 2 - gap * 3) / 4);
+      const cardH = 130;
+      const cardY = sy + (stripH - cardH) / 2;
+
+      cardLabels.forEach((lbl, i) => {
+        const cx = pad + i * (cardW + gap);
+        ctx.fillStyle = "#FFFFFF";
+        roundRect(ctx, cx, cardY, cardW, cardH, 12);
+        ctx.fill();
+        ctx.fillStyle = "#6B7B7D";
+        ctx.font = "600 18px Poppins, system-ui, sans-serif";
+        ctx.fillText(lbl, cx + 14, cardY + 28);
+        ctx.fillStyle = cardColors[i];
+        ctx.font = "700 28px Poppins, system-ui, sans-serif";
+        ctx.fillText(`₹${cardAmounts[i].toLocaleString("en-IN")}`, cx + 14, cardY + 74);
+        ctx.fillStyle = "#9AA5A6";
+        ctx.font = "500 16px Poppins, system-ui, sans-serif";
+        ctx.fillText(cardNotes[i], cx + 14, cardY + 108);
+      });
+
+      let y = sy + stripH;
+
+      // ─ Donors section ─
+      if (topDonors.length > 0) {
+        ctx.fillStyle = "#F5F6FA";
+        ctx.fillRect(0, y, W, donSecH);
+        ctx.fillStyle = "#1C2B2D";
+        ctx.font = "700 30px Poppins, system-ui, sans-serif";
+        ctx.fillText(`Donors (${donations.length})`, pad, y + 44);
+        y += 56;
+        topDonors.forEach((d, idx) => {
+          const ry = y + idx * rowH;
+          if (idx > 0) {
+            ctx.strokeStyle = "rgba(0,0,0,0.06)"; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad, ry); ctx.lineTo(W - pad, ry); ctx.stroke();
+          }
+          const displayName = d.isExternal || d.type === "external" ? `[Ext] ${d.name}` : d.name || `Flat ${d.flat}`;
+          const maxNameW = W - pad * 2 - 260;
+          ctx.fillStyle = "#1C2B2D";
+          ctx.font = "600 24px Poppins, system-ui, sans-serif";
+          const nameWrap = wrapText(ctx, displayName, maxNameW);
+          ctx.fillText(nameWrap[0] + (nameWrap.length > 1 ? "…" : ""), pad, ry + 34);
+          const typeLbl = DON_TYPES[d.type] || "";
+          if (typeLbl) {
+            ctx.fillStyle = "#2D3B3E";
+            ctx.font = "500 20px Poppins, system-ui, sans-serif";
+            ctx.fillText(typeLbl, pad + maxNameW + 10, ry + 34);
+          }
+          ctx.fillStyle = "#1A6B72";
+          ctx.font = "700 26px Poppins, system-ui, sans-serif";
+          const amtStr = `₹${Number(d.amount).toLocaleString("en-IN")}`;
+          ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 34);
+        });
+        y += topDonors.length * rowH + 24;
+      }
+
+      // ─ Expenses by category ─
+      if (cats.length > 0) {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, y, W, catSecH);
+        ctx.fillStyle = "#1C2B2D";
+        ctx.font = "700 30px Poppins, system-ui, sans-serif";
+        ctx.fillText("Expenses by Category", pad, y + 44);
+        y += 56;
+        cats.forEach(([cat, amt], idx) => {
+          const ry = y + idx * rowH;
+          if (idx > 0) {
+            ctx.strokeStyle = "rgba(0,0,0,0.06)"; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad, ry); ctx.lineTo(W - pad, ry); ctx.stroke();
+          }
+          ctx.fillStyle = "#1C2B2D";
+          ctx.font = "600 24px Poppins, system-ui, sans-serif";
+          ctx.fillText(CATEGORIES[cat] || cat, pad, ry + 34);
+          ctx.fillStyle = "#D94343";
+          ctx.font = "700 26px Poppins, system-ui, sans-serif";
+          const amtStr = `₹${amt.toLocaleString("en-IN")}`;
+          ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 34);
+        });
+        y += cats.length * rowH + 24;
+      }
+
+      // ─ Pending receivables ─
+      if (pending.length > 0) {
+        ctx.fillStyle = "#FFFBF0";
+        ctx.fillRect(0, y, W, recSecH);
+        ctx.fillStyle = "#8B6A2E";
+        ctx.font = "700 30px Poppins, system-ui, sans-serif";
+        ctx.fillText("Pending Receivables", pad, y + 44);
+        y += 56;
+        pending.forEach((r, idx) => {
+          const ry = y + idx * rowH;
+          if (idx > 0) {
+            ctx.strokeStyle = "rgba(139,106,46,0.15)"; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad, ry); ctx.lineTo(W - pad, ry); ctx.stroke();
+          }
+          ctx.fillStyle = "#1C2B2D";
+          ctx.font = "600 24px Poppins, system-ui, sans-serif";
+          ctx.fillText(r.flat ? `Flat ${r.flat} – ${r.description}` : r.description, pad, ry + 34);
+          ctx.fillStyle = "#8B6A2E";
+          ctx.font = "700 26px Poppins, system-ui, sans-serif";
+          const amtStr = `₹${Number(r.amount).toLocaleString("en-IN")}`;
+          ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 34);
+        });
+        y += pending.length * rowH + 24;
+      }
+
+      // ─ Footer ─
+      const fy = H - footerH;
+      ctx.fillStyle = goldGrad;
+      ctx.fillRect(0, fy, W, 5);
+      ctx.fillStyle = "#1A6B72";
+      ctx.fillRect(0, fy + 5, W, footerH - 5);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "700 26px Poppins, system-ui, sans-serif";
+      ctx.fillText("Managed with Nivasa", pad, fy + 46);
+      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      ctx.font = "500 20px Poppins, system-ui, sans-serif";
+      ctx.fillText(ev.name, pad, fy + 78);
+
+      const a = document.createElement("a");
+      a.download = `${ev.name.replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40)}_poster.png`;
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    } catch (e) {
+      console.error("Event poster generation failed:", e);
+      alert("Could not generate poster. Try taking a screenshot instead.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button style={E.posterBtn} onClick={generate} disabled={busy}>
+      {busy ? "Generating…" : "📸 Poster"}
+    </button>
+  );
+}
+
 /* ---- Shared card (local copy to avoid Dashboard import cycle) ---- */
 function ECard({ label, value, note, tone }) {
   const accent = tone === "water" ? T.water : tone === "money" ? T.money : tone === "owed" ? T.owed : T.ink;
@@ -852,4 +1079,33 @@ const E = {
   innerTabs: { display: "flex", gap: 0, borderBottom: `1px solid ${T.line}`, marginBottom: 16 },
   innerTab: { padding: "9px 16px", border: "none", background: "transparent", fontWeight: 600, fontSize: 13, cursor: "pointer", color: T.muted, borderBottom: "2.5px solid transparent", marginBottom: -1, fontFamily: display, whiteSpace: "nowrap" },
   innerTabOn: { color: T.water, borderBottomColor: T.water },
+  posterBtn: { background: "#F5F6FA", border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", color: T.ink, fontFamily: font },
 };
+
+// Canvas helper: word wrap
+function wrapText(ctx, text, maxW) {
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const test = line ? line + " " + word : word;
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = word; }
+    else { line = test; }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+// Canvas helper: rounded rectangle path
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
