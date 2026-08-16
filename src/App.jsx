@@ -29,12 +29,18 @@ const setStored = (v) => { try { localStorage.setItem(LS, v); } catch {} };
 const clearUrl = () => { try { window.history.replaceState({}, "", window.location.pathname); } catch {} };
 const newest = (arr) => arr.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
+// Guest flow sessionStorage: persists the guest bid across auth redirects that clear URL params
+const GUEST_SS_KEY = "nivasa_guest_bid";
+const getGuestSS = () => { try { return sessionStorage.getItem(GUEST_SS_KEY) || ""; } catch { return ""; } };
+const setGuestSS = (v) => { try { if (v) sessionStorage.setItem(GUEST_SS_KEY, v); else sessionStorage.removeItem(GUEST_SS_KEY); } catch {} };
+
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState(null);
   const [account, setAccount] = useState(undefined);
   const [activeBid, setActiveBid] = useState("");
   const [creating, setCreating] = useState(false);
+  const [guestJoinError, setGuestJoinError] = useState(null);
 
   const [config, setConfig] = useState(undefined);
   const [flats, setFlats] = useState([]);
@@ -62,6 +68,16 @@ export default function App() {
   const isGuestFlow = !!(urlBid && (urlTab === "community" || urlTab === "events") && !urlCode);
   const guestJoinStarted = useRef(false);
 
+  // Persist guest bid to sessionStorage on mount so it survives auth redirects that clear URL params.
+  useEffect(() => { if (isGuestFlow && urlBid) setGuestSS(urlBid); }, []); // eslint-disable-line
+  const ssGuestBid = getGuestSS();
+  // isGuestFlowActive stays true even after URL is cleared (e.g. OAuth redirect) as long as
+  // sessionStorage still holds the bid.
+  const isGuestFlowActive = isGuestFlow || !!ssGuestBid;
+  const effectiveGuestBid = urlBid || ssGuestBid;
+
+  console.log("[nivasa] isGuestFlow:", isGuestFlow, "isGuestFlowActive:", isGuestFlowActive, "urlBid:", urlBid, "urlTab:", urlTab, "ssGuestBid:", ssGuestBid);
+
   useEffect(() => onAuthStateChanged(auth, async (u) => {
     setUser(u);
     if (u) { await ensureAccount(u.uid, (u.email || "").split("@")[0]); }
@@ -73,12 +89,24 @@ export default function App() {
 
   // Auto-join as guest when arriving via community/events deep link
   useEffect(() => {
-    if (!isGuestFlow || !user || !account || isMemberOf(urlBid)) return;
+    console.log("[nivasa] Guest join effect — user:", !!user, "account:", !!account, "isMemberOf:", isMemberOf(effectiveGuestBid), "started:", guestJoinStarted.current, "isGuestFlowActive:", isGuestFlowActive);
+    if (!isGuestFlowActive || !user || !account || isMemberOf(effectiveGuestBid)) return;
     if (guestJoinStarted.current) return;
     guestJoinStarted.current = true;
-    joinBuildingAsGuest(urlBid, user.uid, account.username)
-      .catch((e) => { console.error("Guest join failed:", e); guestJoinStarted.current = false; });
-  }, [isGuestFlow, user?.uid, account?.username, urlBid]); // eslint-disable-line
+    setGuestJoinError(null);
+    joinBuildingAsGuest(effectiveGuestBid, user.uid, account.username)
+      .then(() => { console.log("[nivasa] Guest join result: success"); })
+      .catch((e) => { console.log("[nivasa] Guest join FAILED:", e); guestJoinStarted.current = false; setGuestJoinError(e?.message || e?.code || "Could not join. Please try again."); });
+  }, [isGuestFlowActive, user?.uid, account?.username, effectiveGuestBid]); // eslint-disable-line
+
+  // Clear sessionStorage once the user has confirmed guest membership (prevents stale loops).
+  useEffect(() => {
+    const bid = getGuestSS();
+    if (bid && account && (account.buildings || []).includes(bid) && membership) {
+      setGuestSS("");
+      console.log("[nivasa] Guest flow complete — cleared sessionStorage for", bid);
+    }
+  }, [account, membership]); // eslint-disable-line
 
   useEffect(() => {
     const bids = account?.buildings || [];
@@ -147,7 +175,8 @@ export default function App() {
        cleanup — only act when genuinely inaccessible after settling. */
   useEffect(() => {
     if (!user || !effectiveBid) return;
-    if (isGuestFlow || guestJoinStarted.current) return;
+    console.log("[nivasa] SEC-01 check — membership:", membership, "config:", !!config, "isGuestFlow:", isGuestFlow, "isGuestFlowActive:", isGuestFlowActive, "guestStarted:", guestJoinStarted.current);
+    if (isGuestFlowActive || guestJoinStarted.current) return;
     const inaccessible = membership === null || config === null;
     if (!inaccessible) return;
 
@@ -331,8 +360,19 @@ const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
       existingNames={(account.buildings || []).map((b) => bnames[b]).filter(Boolean)}
       onDone={(bid) => { setCreating(false); switchTo(bid); }} onCancel={() => setCreating(false)} />;
   }
-  // Guest flow: show splash while auto-join is in progress (before account.buildings updates)
-  if (isGuestFlow && urlBid && !isMemberOf(urlBid)) return <Splash text="Joining as family member…" />;
+  // Guest flow: show splash while auto-join is in progress (before account.buildings updates).
+  // Also covers the sessionStorage-fallback case where URL was cleared by an auth redirect.
+  if (isGuestFlowActive && effectiveGuestBid && !isMemberOf(effectiveGuestBid)) {
+    if (guestJoinError) {
+      return (
+        <GuestJoinError error={guestJoinError} onRetry={() => {
+          setGuestJoinError(null);
+          guestJoinStarted.current = false;
+        }} onSignOut={() => signOut(auth)} />
+      );
+    }
+    return <Splash text="Joining as family member…" />;
+  }
   if (joinContext) {
     return <Join bid={urlBid} code={urlCode} uid={user.uid} username={account.username}
       onJoined={(bid) => switchTo(bid)} onSignOut={() => signOut(auth)} />;
@@ -340,8 +380,11 @@ const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
   if (!effectiveBid) {
     return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
   }
-  // If membership resolved to null (not a member of this building), go to Landing
-  if (membership === null) {
+  // If membership resolved to null (not a member of this building), go to Landing.
+  // Guard: skip during guest flow — membership can transiently be null before the Firestore
+  // subscription delivers the first server snapshot (Firestore local cache may miss the new doc).
+  console.log("[nivasa] Account buildings:", account?.buildings, "membership:", membership, "effectiveBid:", effectiveBid, "isGuestFlowActive:", isGuestFlowActive);
+  if (membership === null && !isGuestFlowActive && !guestJoinStarted.current) {
     return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
   }
   // Show onboarding as soon as config + membership are ready — no need to wait for water/maint.
@@ -404,6 +447,29 @@ function Splash({ text }) {
       background: T.bg, color: T.inkSoft, fontFamily: font, fontSize: 15, padding: 20, textAlign: "center" }}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
       {text}
+    </div>
+  );
+}
+
+function GuestJoinError({ error, onRetry, onSignOut }) {
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: T.bg, fontFamily: font, padding: 20 }}>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
+      <div style={{ maxWidth: 360, width: "100%", background: "#fff", borderRadius: 16, padding: "28px 24px",
+        border: `1px solid ${T.line}`, textAlign: "center" }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+        <p style={{ fontWeight: 600, fontSize: 15, color: T.ink, margin: "0 0 8px" }}>Couldn't join as family member</p>
+        <p style={{ fontSize: 13, color: T.inkSoft, margin: "0 0 20px", lineHeight: 1.5 }}>{error}</p>
+        <button className="primaryBtn" onClick={onRetry}
+          style={{ width: "100%", padding: "11px", marginBottom: 10 }}>
+          Try again
+        </button>
+        <button onClick={onSignOut}
+          style={{ background: "none", border: "none", color: T.inkSoft, fontSize: 13, cursor: "pointer", fontFamily: font }}>
+          Sign out
+        </button>
+      </div>
     </div>
   );
 }

@@ -67,6 +67,9 @@ export default function Dashboard({
   const [initialActivityId] = useState(() => {
     try { return new URLSearchParams(window.location.search).get("a") || null; } catch { return null; }
   });
+  const [initialEventId] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("e") || null; } catch { return null; }
+  });
 
   // Clear URL params after first render so page refreshes land on the home tab,
   // not back on the deep-linked tab/event (affects both regular users and guests).
@@ -369,7 +372,7 @@ export default function Dashboard({
         )}
         {tab === "flat" && !isGuest && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} config={config} />}
         {tab === "history" && !isGuest && <History flat={meFlat} residential={residential} allFlats={allMeters} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} corpusMonthly={Number(config?.corpus?.monthly || 0)} />}
-        {tab === "events" && <Events bid={bid} events={events || []} membership={membership} flats={flats} admin={admin} mobile={mobile} />}
+        {tab === "events" && <Events bid={bid} events={events || []} membership={membership} flats={flats} admin={admin} mobile={mobile} initialEventId={initialEventId} />}
         {tab === "community" && <Community bid={bid} activities={activities || []} membership={membership} members={members} config={config} admin={admin} mobile={mobile} initialActivityId={initialActivityId} />}
         {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} onConfirm={(opts) => setConfirmModal(opts)} />}
       </main>

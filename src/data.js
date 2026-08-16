@@ -447,13 +447,14 @@ export function getPaymentsForFlat(payments, flat) {
 
 
 /* Remove a member from the building (admin only).
-   Deletes the membership doc and frees their flat claim.
-   The removed user's stale buildings array entry is cleaned up on their
-   next login via the self-heal effect in App.jsx (SEC-01). */
+   Deletes the membership doc, frees their flat claim, and removes the
+   building from the user's own buildings array so they don't get stuck
+   on "Loading ledger…" after re-login. */
 export async function removeMember(bid, uid, flat) {
   const batch = writeBatch(db);
   batch.delete(memberRef(bid, uid));
   if (flat) batch.update(flatRef(bid, flat), { claimedByUid: null });
+  batch.update(userRef(uid), { buildings: arrayRemove(bid) });
   await batch.commit();
 }
 

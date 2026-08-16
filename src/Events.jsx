@@ -12,7 +12,7 @@ const DON_TYPES = {
   contra: "Item Donation", carryforward: "Carry Forward", external: "External",
 };
 
-export default function Events({ bid, events, membership, flats, admin, mobile }) {
+export default function Events({ bid, events, membership, flats, admin, mobile, initialEventId }) {
   const residential = useMemo(
     () => flats.filter((f) => !f.isCommon).sort((a, b) => a.flat.localeCompare(b.flat)),
     [flats]
@@ -26,7 +26,7 @@ export default function Events({ bid, events, membership, flats, admin, mobile }
     [events]
   );
 
-  const [selId, setSelId] = useState(null);
+  const [selId, setSelId] = useState(initialEventId || null);
   const [creating, setCreating] = useState(false);
 
   const selEvent = selId ? events.find((e) => e.id === selId) : sorted[0] || null;
