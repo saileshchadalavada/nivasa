@@ -9,7 +9,7 @@ import { styles as S, T, display, mono } from "./styles";
    periods that have been closed inside the app. Admins / water / treasurer can
    view any flat; residents see their own. */
 export default function History({ flat, residential, allFlats, pastWater = [], pastMaint = [], canPickAny, showSeedHistory, corpusMonthly = 0 }) {
-  const [pickFlat, setPickFlat] = useState(flat || (residential[0] && residential[0].flat) || "");
+  const [pickFlat, setPickFlat] = useState(flat || "");
   const F = canPickAny ? pickFlat : (flat || pickFlat);
   const nRes = residential.length || 1;
 
@@ -112,6 +112,8 @@ export default function History({ flat, residential, allFlats, pastWater = [], p
   // FIN-07: label imported historical amounts clearly
   const amountNote = cur.isImported ? "historical recorded amount" : "share of tanker cost";
   const maintNote = cur.isImported ? "historical recorded amount" : "your equal share";
+
+  if (!F) return <div style={{ color: T.muted, padding: "32px 16px", textAlign: "center" }}>No flat assigned — history unavailable.</div>;
 
   return (
     <>

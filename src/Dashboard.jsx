@@ -89,8 +89,8 @@ export default function Dashboard({
   const dispWater = useMemo(() => computeWater(displayWater), [displayWater, allMeters, nRes]);
   const dispMaint = useMemo(() => computeMaint(displayMaint), [displayMaint, nRes]);
 
-  const waterStart = waterMonth.periodStart || "", waterEnd = waterMonth.periodEnd || "";
-  const maintStart = maintMonth.periodStart || "", maintEnd = maintMonth.periodEnd || "";
+  const waterStart = waterMonth?.periodStart || "", waterEnd = waterMonth?.periodEnd || "";
+  const maintStart = maintMonth?.periodStart || "", maintEnd = maintMonth?.periodEnd || "";
   const startReadyWater = !!waterStart && !!waterEnd && !waterDirty && water.grandTotal > 0 && water.rawCons > 0 && water.costItems.length > 0;
   const startReadyMaint = !!maintStart && !!maintEnd && !maintDirty && maint.total > 0;
 
@@ -109,6 +109,7 @@ export default function Dashboard({
   const setExpenses = (fn) => patchMaint((m) => ({ ...m, expenses: fn(m.expenses || []) }));
 
   const prevWaterCons = useMemo(() => {
+    if (!waterMonth) return {};
     // FUNC-01: select the period whose periodEnd is strictly before the current periodStart
     const curStart = waterMonth.periodStart || "";
     // try real closed periods first — filtered to those ending before the selected period
@@ -134,16 +135,16 @@ export default function Dashboard({
 
   const doPublish = async (kind) => {
     const coll = kind === "water" ? "waterPeriods" : "maintPeriods";
-    const id = kind === "water" ? waterMonth.id : maintMonth.id;
+    const id = kind === "water" ? waterMonth?.id : maintMonth?.id;
     try { await publishPeriod(bid, coll, id, uid); } catch (e) { console.error("Publish failed:", e); }
   };
   const snapshotText = (kind) => kind === "water"
     ? buildWaterSnapshot({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), startIso: waterStart, endIso: waterEnd, rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, residentialBillTotal: water.residentialBillTotal, commonLiability: water.commonLiability, costItems: water.costItems })
-    : buildMaintSnapshot({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), startIso: maintStart, endIso: maintEnd, expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, nRes, byMember: maint.byMember });
+    : buildMaintSnapshot({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), startIso: maintStart, endIso: maintEnd, expenses: maintMonth?.expenses || [], total: maint.total, perFlat: maint.perFlat, nRes, byMember: maint.byMember });
 
   const snapshotPoster = (kind) => kind === "water"
     ? generateWaterPoster({ name: config.name, label: labelFromStart(waterStart) || "Water", start: fmtDate(waterStart), end: fmtDate(waterEnd), startIso: waterStart, endIso: waterEnd, rows: water.rows, prevCons: prevWaterCons, grandTotal: water.grandTotal, costItems: water.costItems })
-    : generateMaintPoster({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), startIso: maintStart, endIso: maintEnd, expenses: maintMonth.expenses || [], total: maint.total, perFlat: maint.perFlat, byMember: maint.byMember });
+    : generateMaintPoster({ name: config.name, label: labelFromStart(maintStart) || "Maintenance", start: fmtDate(maintStart), end: fmtDate(maintEnd), startIso: maintStart, endIso: maintEnd, expenses: maintMonth?.expenses || [], total: maint.total, perFlat: maint.perFlat, byMember: maint.byMember });
 
   const shareInvite = async () => {
     const link = `${window.location.origin}${window.location.pathname}?b=${bid}&join=${config.inviteCode}`;
@@ -213,12 +214,12 @@ export default function Dashboard({
                 <div style={S.monthPill}>Maintenance · {labelFromStart(maintStart) || "New period"}</div>
                 <div style={S.monthRange}>{fmtDate(maintStart)} → {fmtDate(maintEnd)}</div>
               </div>
-            ) : (
+            ) : !isGuest ? (
               <div style={S.monthBox}>
                 <div style={S.monthPill}>Water {dw.label} · Maint {dm.label}</div>
                 <div style={S.monthRange}>W {fmtDate(dw.start)}→{fmtDate(dw.end)} · M {fmtDate(dm.start)}→{fmtDate(dm.end)}</div>
               </div>
-            )}
+            ) : null}
             <div style={S.userBox}>
               <div style={S.avatar}>{initialsOf(myName)}</div>
               <div style={S.userMeta}>
@@ -327,7 +328,7 @@ export default function Dashboard({
             onNav={setTab}
           />
         )}
-        {tab === "dashboard" && (
+        {tab === "dashboard" && !isGuest && (
           <Overview water={dispWater} maint={dispMaint} paidWater={displayWater?.paidWater || {}} paidMaint={displayMaint?.paidMaint || {}}
             waterPeriod={dw} maintPeriod={dm}
             residential={residential} canWater={canWater} canMaint={canMaint} admin={admin} config={config}
@@ -339,10 +340,10 @@ export default function Dashboard({
             waterPeriod={dw} maintPeriod={dm} config={config}
             onClose={() => setShowBroadcast(false)} />
         )}
-        {tab === "water" && (
+        {tab === "water" && !isGuest && (
           <WaterEntry water={water} setField={setWaterField} setReading={setReading} canEdit={canWater}
             periodStart={waterStart} periodEnd={waterEnd}
-            costItems={waterMonth.costItems || []}
+            costItems={waterMonth?.costItems || []}
             onSetCostItems={(items) => patchWater((m) => ({ ...m, costItems: items }))}
             onSetMeter={onSetMeter} onBackfill={onBackfillWater} showAdj={showAdj} onToggleAdj={onToggleAdj}
             periods={waterList} selId={selWaterId} onSelect={onSelectWater} isLatest={isLatestWater}
@@ -350,8 +351,8 @@ export default function Dashboard({
             onStartNext={onStartWater} onDeletePeriod={onDeleteWater} canDelete={canDeleteWater}
             startReady={startReadyWater} saving={saving} flats={flats} mobile={mobile} />
         )}
-        {tab === "maintenance" && (
-          <Maintenance maint={maint} expenses={maintMonth.expenses || []} setExpenses={setExpenses}
+        {tab === "maintenance" && !isGuest && (
+          <Maintenance maint={maint} expenses={maintMonth?.expenses || []} setExpenses={setExpenses}
             residential={residential} canEdit={canMaint} setField={setMaintField}
             periodStart={maintStart} periodEnd={maintEnd} onBackfill={onBackfillMaint}
             periods={maintList} selId={selMaintId} onSelect={onSelectMaint} isLatest={isLatestMaint}
@@ -359,8 +360,8 @@ export default function Dashboard({
             onStartNext={onStartMaint} onDeletePeriod={onDeleteMaint} canDelete={canDeleteMaint}
             startReady={startReadyMaint} saving={saving} mobile={mobile} config={config} bid={bid} />
         )}
-        {tab === "flat" && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} config={config} />}
-        {tab === "history" && <History flat={meFlat} residential={residential} allFlats={allMeters} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} corpusMonthly={Number(config?.corpus?.monthly || 0)} />}
+        {tab === "flat" && !isGuest && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} config={config} />}
+        {tab === "history" && !isGuest && <History flat={meFlat} residential={residential} allFlats={allMeters} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} corpusMonthly={Number(config?.corpus?.monthly || 0)} />}
         {tab === "events" && <Events bid={bid} events={events || []} membership={membership} flats={flats} admin={admin} mobile={mobile} />}
         {tab === "community" && <Community bid={bid} activities={activities} membership={membership} members={members} config={config} admin={admin} mobile={mobile} initialActivityId={initialActivityId} />}
         {tab === "members" && admin && <Members bid={bid} members={members} flats={flats} config={config} onDeleteBuilding={onDeleteBuilding} onImportWater2026={onImportWater2026} canImportWater2026={canImportWater2026} mobile={mobile} onConfirm={(opts) => setConfirmModal(opts)} />}
@@ -396,7 +397,7 @@ export default function Dashboard({
       {mobile && !dirty && (
         <nav style={MB.bottomNav}>
           {(isGuest
-            ? [["home", "🏠", t("home")], ["community", "📊", t("community")]]
+            ? [["home", "🏠", t("home")], ["events", "🎉", "Events"], ["community", "📊", t("community")]]
             : [["home", "🏠", t("home")], ["water", "💧", t("water")], ["maintenance", "🔧", t("maintenance")], ["community", "📊", t("community")]]
           ).map(([k, icon, label]) => (
             <button key={k} onClick={() => setTab(k)} style={{ ...MB.bottomNavItem, ...(tab === k ? MB.bottomNavItemActive : {}) }}>
