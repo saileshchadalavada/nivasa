@@ -154,11 +154,11 @@ export default function Dashboard({
   };
 
   const tabs = isGuest
-    ? [["home", "🏠"], ["events", "🎉 Events"], ["community", t("community")]]
+    ? [["home", "🏠"], ["events", "🎉 Events & Projects"], ["community", t("community")]]
     : [
         ["home", "🏠"], ["dashboard", t("overview")], ["water", t("water")], ["maintenance", t("maintenance")],
         ...(meFlat ? [["flat", t("myFlat")]] : []), ["history", t("history")],
-        ["events", "🎉 Events"],
+        ["events", "🎉 Events & Projects"],
         ["community", t("community")],
         ...(admin ? [["members", t("members")]] : []),
       ];
@@ -397,7 +397,7 @@ export default function Dashboard({
       {mobile && !dirty && (
         <nav style={MB.bottomNav}>
           {(isGuest
-            ? [["home", "🏠", t("home")], ["events", "🎉", "Events"], ["community", "📊", t("community")]]
+            ? [["home", "🏠", t("home")], ["events", "🎉", "Events & Projects"], ["community", "📊", t("community")]]
             : [["home", "🏠", t("home")], ["water", "💧", t("water")], ["maintenance", "🔧", t("maintenance")], ["community", "📊", t("community")]]
           ).map(([k, icon, label]) => (
             <button key={k} onClick={() => setTab(k)} style={{ ...MB.bottomNavItem, ...(tab === k ? MB.bottomNavItemActive : {}) }}>
@@ -1709,7 +1709,7 @@ function Drawer({ children, onClose }) {
 
 /* ---- Home hub — icon grid with live data summaries ---- */
 function HomeHub({ myName, meFlat, admin, mobile, t, waterLabel, maintLabel, myWaterBill, maintPerFlat, activityCount, eventCount, isGuest, onNav }) {
-  const eventsCard = { key: "events", icon: "🎉", label: "Events", sub: eventCount > 0 ? `${eventCount} event${eventCount === 1 ? "" : "s"}` : "Festivals & funds", value: t("view"), color: "#D08C30" };
+  const eventsCard = { key: "events", icon: "🎉", label: "Events & Projects", sub: eventCount > 0 ? `${eventCount} event${eventCount === 1 ? "" : "s"}` : "Festivals & funds", value: t("view"), color: "#D08C30" };
   const communityCard = { key: "community", icon: "📊", label: t("community"), sub: activityCount > 0 ? `${activityCount} ${t("recentActivity")}` : t("pollsUpdates"), value: activityCount > 0 ? `${activityCount} new` : t("view"), color: "#D64B8A" };
 
   const cards = isGuest
