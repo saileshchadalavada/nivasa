@@ -108,7 +108,9 @@ export async function joinBuildingAsGuest(bid, uid, username) {
   await batch.commit();
 }
 export const subscribeMembership = (bid, uid, cb) =>
-  onSnapshot(memberRef(bid, uid), (s) => cb(s.exists() ? { uid, ...s.data() } : null));
+  onSnapshot(memberRef(bid, uid),
+    (s) => cb(s.exists() ? { uid, ...s.data() } : null),
+    (err) => { console.error("subscribeMembership:", err.code); cb(null); });
 export const subscribeMembers = (bid, cb) =>
   onSnapshot(query(membersCol(bid)), (snap) => cb(snap.docs.map((d) => ({ uid: d.id, ...d.data() }))));
 export const setMemberFlat = (bid, uid, flat) => updateDoc(memberRef(bid, uid), { flat });
