@@ -8,6 +8,7 @@ import {
   subscribeMaintPeriods, saveMaintPeriod, startNextMaintPeriod, deleteMaintPeriod, ensureMaintPeriod,
   subscribeActivities,
   subscribeEvents,
+  joinBuildingAsGuest,
   deleteBuilding, setPaidFlag, backfillWater2026,
   removeOwnBuildingReference,
 } from "./data";
@@ -56,6 +57,10 @@ export default function App() {
   const params = new URLSearchParams(window.location.search);
   const urlBid = params.get("b") || "";
   const urlCode = params.get("join") || params.get("code") || "";
+  const urlTab = params.get("tab") || "";
+  // Guest flow: community/events deep link without an invite code
+  const isGuestFlow = !!(urlBid && (urlTab === "community" || urlTab === "events") && !urlCode);
+  const guestJoinStarted = useRef(false);
 
   useEffect(() => onAuthStateChanged(auth, async (u) => {
     setUser(u);
@@ -66,6 +71,15 @@ export default function App() {
 
   useEffect(() => { if (!user) return; return subscribeAccount(user.uid, setAccount); }, [user]);
 
+  // Auto-join as guest when arriving via community/events deep link
+  useEffect(() => {
+    if (!isGuestFlow || !user || !account || isMemberOf(urlBid)) return;
+    if (guestJoinStarted.current) return;
+    guestJoinStarted.current = true;
+    joinBuildingAsGuest(urlBid, user.uid, account.username)
+      .catch((e) => { console.error("Guest join failed:", e); guestJoinStarted.current = false; });
+  }, [isGuestFlow, user?.uid, account?.username, urlBid]); // eslint-disable-line
+
   useEffect(() => {
     const bids = account?.buildings || [];
     let alive = true;
@@ -75,7 +89,8 @@ export default function App() {
   }, [account]);
 
   const isMemberOf = (bid) => !!(account?.buildings || []).includes(bid);
-  const joinContext = user && account && urlBid && !isMemberOf(urlBid);
+  // For guest flow, skip Join.jsx — auto-join happens via the effect above
+  const joinContext = user && account && urlBid && !isMemberOf(urlBid) && !isGuestFlow;
   const effectiveBid = useMemo(() => {
     if (!account || joinContext) return "";
     if (urlBid && isMemberOf(urlBid)) return urlBid;
@@ -283,13 +298,15 @@ export default function App() {
   };
 
   if (!authReady) return <Splash text="Loading…" />;
-  if (!user) return <Auth inviteBid={urlBid} />;
+  if (!user) return <Auth inviteBid={urlBid} guestFlow={isGuestFlow} />;
   if (!account) return <Splash text="Loading…" />;
   if (creating) {
     return <Setup adminUid={user.uid} username={account.username}
       existingNames={(account.buildings || []).map((b) => bnames[b]).filter(Boolean)}
       onDone={(bid) => { setCreating(false); switchTo(bid); }} onCancel={() => setCreating(false)} />;
   }
+  // Guest flow: show splash while auto-join is in progress (before account.buildings updates)
+  if (isGuestFlow && urlBid && !isMemberOf(urlBid)) return <Splash text="Joining as family member…" />;
   if (joinContext) {
     return <Join bid={urlBid} code={urlCode} uid={user.uid} username={account.username}
       onJoined={(bid) => switchTo(bid)} onSignOut={() => signOut(auth)} />;
@@ -304,8 +321,10 @@ export default function App() {
   // Show onboarding as soon as config + membership are ready — no need to wait for water/maint.
   // Editor roles (water, treasurer) also bypass onboarding so they can reach the Dashboard
   // even if they haven't claimed a flat yet.
+  // Guests (family members) skip onboarding — they have no flat to claim.
   const hasEditorRole = membership?.roles?.some((r) => ["admin", "water", "treasurer"].includes(r));
-  const skipOnboarding = config && membership ? (isAdmin(membership, config, user.uid) || hasEditorRole) : false;
+  const isGuest = membership?.residentType === "guest";
+  const skipOnboarding = config && membership ? (isAdmin(membership, config, user.uid) || hasEditorRole || isGuest) : false;
   if (config && membership && !membership.flat && !skipOnboarding) {
     if (!flats.length) return <Splash text="Loading flats…" />;
     return <Onboarding bid={effectiveBid} uid={user.uid} username={account.username} flats={flats} config={config}

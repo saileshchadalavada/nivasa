@@ -116,6 +116,12 @@ export async function joinBuilding(bid, uid, username) {
   batch.update(userRef(uid), { buildings: arrayUnion(bid) });
   await batch.commit();
 }
+export async function joinBuildingAsGuest(bid, uid, username) {
+  const batch = writeBatch(db);
+  batch.set(memberRef(bid, uid), { username, flat: null, roles: [], residentType: "guest", joinedAt: Date.now() });
+  batch.update(userRef(uid), { buildings: arrayUnion(bid) });
+  await batch.commit();
+}
 export const subscribeMembership = (bid, uid, cb) =>
   onSnapshot(memberRef(bid, uid), (s) => cb(s.exists() ? { uid, ...s.data() } : null));
 export const subscribeMembers = (bid, cb) =>

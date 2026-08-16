@@ -95,7 +95,7 @@ service cloud.firestore {
           && roles.hasOnly(['admin', 'treasurer', 'water']);
       }
       function validResidentType(value) {
-        return value == 'owner' || value == 'tenant';
+        return value == 'owner' || value == 'tenant' || value == 'guest';
       }
 
       // SEC-03: building config readable by authenticated users only

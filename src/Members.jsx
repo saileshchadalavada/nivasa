@@ -42,43 +42,53 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {members.map((u) => {
             const isFounder = config?.adminUid === u.uid;
+            const isGuestMember = u.residentType === "guest";
             const hasRole = isFounder || u.roles?.includes("admin") || u.roles?.includes("treasurer") || u.roles?.includes("water");
-            const typeLabel = u.residentType === "tenant" ? "Tenant" : u.residentType === "owner" ? "Owner" : "";
+            const typeLabel = u.residentType === "tenant" ? "Tenant" : u.residentType === "owner" ? "Owner" : u.residentType === "guest" ? "Family" : "";
             return (
               <div key={u.uid} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <div>
                     <span style={{ fontWeight: 700, fontSize: 15 }}>{u.username}</span>
                     {isFounder && <span style={M.badge}>founder</span>}
+                    {isGuestMember && <span style={M.familyTag}>Family</span>}
                     <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>
-                      {typeLabel || "—"}{!hasRole && <span style={M.memberTag}>view-only</span>}
+                      {typeLabel || "—"}{!isGuestMember && !hasRole && <span style={M.memberTag}>view-only</span>}
                     </div>
                   </div>
-                  <select className="cell" style={{ ...S.cellSelect, fontSize: 13 }} value={u.flat || ""}
-                    onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
-                    <option value="">— none —</option>
-                    {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
-                  </select>
+                  {isGuestMember ? (
+                    <span style={{ fontSize: 12, color: T.muted }}>No flat</span>
+                  ) : (
+                    <select className="cell" style={{ ...S.cellSelect, fontSize: 13 }} value={u.flat || ""}
+                      onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
+                      <option value="">— none —</option>
+                      {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
+                    </select>
+                  )}
                 </div>
-                <div style={{ marginBottom: 8 }}>
-                  <input className="cell" style={{ ...S.cellInput, width: "100%", fontSize: 13 }}
-                    value={u.phone || ""} placeholder="Phone number"
-                    onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
-                </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 60 }}>Treasurer</span>
-                  <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />
-                  <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Water</span>
-                  <Check on={u.roles?.includes("water")} onClick={() => toggleRole(u, "water")} />
-                  <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Admin</span>
-                  {isFounder ? <span style={{ color: T.muted, fontSize: 12 }}>always</span>
-                    : <Check on={u.roles?.includes("admin")} onClick={() => toggleRole(u, "admin")} />}
-                </div>
+                {!isGuestMember && (
+                  <div style={{ marginBottom: 8 }}>
+                    <input className="cell" style={{ ...S.cellInput, width: "100%", fontSize: 13 }}
+                      value={u.phone || ""} placeholder="Phone number"
+                      onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
+                  </div>
+                )}
+                {!isGuestMember && (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 60 }}>Treasurer</span>
+                    <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />
+                    <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Water</span>
+                    <Check on={u.roles?.includes("water")} onClick={() => toggleRole(u, "water")} />
+                    <span style={{ fontSize: 12, color: T.inkSoft, minWidth: 40, marginLeft: 8 }}>Admin</span>
+                    {isFounder ? <span style={{ color: T.muted, fontSize: 12 }}>always</span>
+                      : <Check on={u.roles?.includes("admin")} onClick={() => toggleRole(u, "admin")} />}
+                  </div>
+                )}
                 {!isFounder && (
                   <button style={{ border: "none", background: "none", color: T.owed, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: font, marginTop: 8, padding: 0 }}
                     onClick={() => onConfirm && onConfirm({
                       title: "Remove member?",
-                      message: `Remove ${u.username} from this building? They will lose access and their flat will be freed.`,
+                      message: `Remove ${u.username} from this building? They will lose access${u.flat ? " and their flat will be freed" : ""}.`,
                       confirmLabel: "Remove",
                       onConfirm: () => removeMember(bid, u.uid, u.flat || null),
                     })}>Remove member</button>
@@ -104,38 +114,52 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
           <tbody>
             {members.map((u) => {
               const isFounder = config?.adminUid === u.uid;
+              const isGuestMember = u.residentType === "guest";
               return (
                 <tr key={u.uid}>
                   <td style={{ ...S.td, fontWeight: 600 }}>
-                    {u.username}{isFounder && <span style={M.badge}>founder</span>}
+                    {u.username}
+                    {isFounder && <span style={M.badge}>founder</span>}
+                    {isGuestMember && <span style={M.familyTag}>Family</span>}
                   </td>
                   <td style={{ ...S.td, padding: "4px 8px" }}>
-                    <select className="cell" style={S.cellSelect} value={u.flat || ""}
-                      onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
-                      <option value="">— none —</option>
-                      {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
-                    </select>
+                    {isGuestMember ? (
+                      <span style={{ fontSize: 12, color: T.muted }}>—</span>
+                    ) : (
+                      <select className="cell" style={S.cellSelect} value={u.flat || ""}
+                        onChange={(e) => handleAssignFlat(u, e.target.value || null)}>
+                        <option value="">— none —</option>
+                        {flatOptions.map((f) => <option key={f} value={f}>Flat {f}</option>)}
+                      </select>
+                    )}
                   </td>
                   <td style={{ ...S.td, padding: "4px 8px" }}>
-                    <input className="cell" style={{ ...S.cellInput, width: 130, fontSize: 12.5 }}
-                      value={u.phone || ""} placeholder="+91..."
-                      onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
+                    {isGuestMember ? (
+                      <span style={{ fontSize: 12, color: T.muted }}>—</span>
+                    ) : (
+                      <input className="cell" style={{ ...S.cellInput, width: 130, fontSize: 12.5 }}
+                        value={u.phone || ""} placeholder="+91..."
+                        onChange={(e) => updateMembership(bid, u.uid, { phone: e.target.value || null })} />
+                    )}
                   </td>
                   <td style={{ ...S.td, textTransform: "capitalize", color: T.inkSoft }}>
                     {(() => {
                       const hasRole = isFounder || u.roles?.includes("admin") || u.roles?.includes("treasurer") || u.roles?.includes("water");
-                      const typeLabel = u.residentType === "tenant" ? "Tenant" : u.residentType === "owner" ? "Owner" : "";
-                      return <span>{typeLabel || "—"}{!hasRole && <span style={M.memberTag}>Member · view-only</span>}</span>;
+                      const typeLabel = u.residentType === "tenant" ? "Tenant" : u.residentType === "owner" ? "Owner" : u.residentType === "guest" ? "Family" : "";
+                      return <span>{typeLabel || "—"}{!isGuestMember && !hasRole && <span style={M.memberTag}>Member · view-only</span>}</span>;
                     })()}
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
-                    <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />
+                    {isGuestMember ? <span style={{ color: T.muted, fontSize: 12 }}>—</span>
+                      : <Check on={u.roles?.includes("treasurer")} onClick={() => toggleRole(u, "treasurer")} />}
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
-                    <Check on={u.roles?.includes("water")} onClick={() => toggleRole(u, "water")} />
+                    {isGuestMember ? <span style={{ color: T.muted, fontSize: 12 }}>—</span>
+                      : <Check on={u.roles?.includes("water")} onClick={() => toggleRole(u, "water")} />}
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
-                    {isFounder ? <span style={{ color: T.muted, fontSize: 12 }}>always</span>
+                    {isGuestMember ? <span style={{ color: T.muted, fontSize: 12 }}>—</span>
+                      : isFounder ? <span style={{ color: T.muted, fontSize: 12 }}>always</span>
                       : <Check on={u.roles?.includes("admin")} onClick={() => toggleRole(u, "admin")} />}
                   </td>
                   <td style={{ ...S.td, textAlign: "center" }}>
@@ -143,7 +167,7 @@ export default function Members({ bid, members, flats, config, onDeleteBuilding,
                       <button style={{ border: "none", background: "none", color: T.owed, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: font, opacity: 0.7 }}
                         onClick={() => onConfirm && onConfirm({
                           title: "Remove member?",
-                          message: `Remove ${u.username} from this building? They will lose access and their flat will be freed.`,
+                          message: `Remove ${u.username} from this building? They will lose access${u.flat ? " and their flat will be freed" : ""}.`,
                           confirmLabel: "Remove",
                           onConfirm: () => removeMember(bid, u.uid, u.flat || null),
                         })}>Remove</button>
@@ -231,6 +255,8 @@ function MigrateTool() {
 
 const M = { badge: { marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: T.gold, background: "#F6EFD9",
   padding: "2px 6px", borderRadius: 5, textTransform: "uppercase", letterSpacing: ".04em" },
+  familyTag: { marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: "#8B6A2E", background: "#FEF3C7",
+    padding: "2px 6px", borderRadius: 5, textTransform: "uppercase", letterSpacing: ".04em" },
   memberTag: { marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: T.inkSoft, background: "#EEF0F6",
     padding: "2px 6px", borderRadius: 5, textTransform: "none", letterSpacing: 0, whiteSpace: "nowrap" },
   danger: { marginTop: 28, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap",

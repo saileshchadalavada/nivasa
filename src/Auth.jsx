@@ -8,15 +8,18 @@ import { styles as S, T, css, display, mono, font } from "./styles";
 /* SEC-09: separate sign-in from account creation.
    - Sign in: always attempted first.
    - Create: only when the user explicitly chooses "Create account" AND has
-     a valid invite context (inviteBid). Network, disabled-user, and config
-     errors never fall through to account creation. */
-export default function Auth({ inviteBid }) {
+     a valid invite context (inviteBid OR guestFlow). Network, disabled-user,
+     and config errors never fall through to account creation. */
+export default function Auth({ inviteBid, guestFlow }) {
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [bname, setBname] = useState("");
   const [mode, setMode] = useState("signin"); // "signin" | "create"
+
+  // Allow account creation if there's an invite bid OR it's a guest/community flow
+  const canCreate = !!(inviteBid || guestFlow);
 
   useEffect(() => {
     if (inviteBid) getPublicBuilding(inviteBid).then((b) => b && setBname(b.name || "")).catch(() => {});
@@ -34,14 +37,16 @@ export default function Auth({ inviteBid }) {
       if (mode === "signin") {
         await signInWithEmailAndPassword(auth, email, pin);
       } else {
-        // Create mode — only allowed with an invite context
-        if (!inviteBid) {
+        // Create mode — only allowed with an invite context or guest flow
+        if (!canCreate) {
           setErr("You need an invitation link to create a new account.");
           setBusy(false);
           return;
         }
         try {
           await createUserWithEmailAndPassword(auth, email, pin);
+          // For guest flow, App.jsx's auto-join effect handles joinBuildingAsGuest
+          // For regular invite flow, Join.jsx handles joinBuilding
         } catch (ce) {
           const code = ce?.code || "";
           if (code === "auth/email-already-in-use") {
@@ -59,7 +64,7 @@ export default function Auth({ inviteBid }) {
     } catch (e) {
       const code = e?.code || "";
       if (code === "auth/user-not-found" || code === "auth/invalid-credential") {
-        if (inviteBid) {
+        if (canCreate) {
           setErr("Incorrect PIN, or this username doesn't exist yet. If you're new, tap \"Create account\" below.");
         } else {
           setErr("Incorrect username or PIN.");
@@ -80,6 +85,14 @@ export default function Auth({ inviteBid }) {
     }
   };
 
+  const subtitle = mode === "create"
+    ? guestFlow
+      ? (bname ? `Join ${bname} as a family member` : "Join as a family member")
+      : (bname ? `Create account to join ${bname}` : "Create your account")
+    : guestFlow
+      ? (bname ? `Sign in to view ${bname} community` : "Sign in to your account")
+      : (bname ? `Sign in to join ${bname}` : "Sign in to your account");
+
   return (
     <div style={L.wrap}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
@@ -90,11 +103,7 @@ export default function Auth({ inviteBid }) {
           ))}
         </div>
         <h1 style={L.title}>Nivasa</h1>
-        <p style={L.sub}>
-          {mode === "create"
-            ? (bname ? `Create account to join ${bname}` : "Create your account")
-            : (bname ? `Sign in to join ${bname}` : "Sign in to your account")}
-        </p>
+        <p style={L.sub}>{subtitle}</p>
 
         <label style={L.label}>Username</label>
         <input value={username} onChange={(e)=>setUsername(e.target.value)}
@@ -115,7 +124,7 @@ export default function Auth({ inviteBid }) {
 
         <div style={L.switchRow}>
           {mode === "signin" ? (
-            inviteBid ? (
+            canCreate ? (
               <span>New here? <button style={L.linkBtn} onClick={() => { setMode("create"); setErr(""); }}>Create account</button></span>
             ) : (
               <span style={{ fontSize: 12, color: T.muted }}>Need an account? Ask your building admin for an invite link.</span>

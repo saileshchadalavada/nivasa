@@ -48,14 +48,21 @@ export default function Dashboard({
   const canMaint = canEditMaint(membership, config, uid);
   const meFlat = membership.flat;
   const dirty = waterDirty || maintDirty;
+  const isGuest = membership?.residentType === "guest";
 
   const residential = useMemo(
     () => flats.filter((f) => !f.isCommon).sort((a, b) => a.flat.localeCompare(b.flat)), [flats]);
   const allMeters = useMemo(() => [...residential, ...flats.filter((f) => f.isCommon)], [flats, residential]);
   const nRes = residential.length || 1;
 
+  const GUEST_TABS = ["home", "events", "community"];
   const [tab, setTab] = useState(() => {
-    try { const p = new URLSearchParams(window.location.search).get("tab"); return p || "home"; } catch { return "home"; }
+    try {
+      const p = new URLSearchParams(window.location.search).get("tab");
+      // Redirect guests away from tabs they can't access
+      if (isGuest && p && !GUEST_TABS.includes(p)) return "community";
+      return p || "home";
+    } catch { return "home"; }
   });
   const [initialActivityId] = useState(() => {
     try { return new URLSearchParams(window.location.search).get("a") || null; } catch { return null; }
@@ -145,13 +152,15 @@ export default function Dashboard({
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   };
 
-  const tabs = [
-    ["home", "🏠"], ["dashboard", t("overview")], ["water", t("water")], ["maintenance", t("maintenance")],
-    ...(meFlat ? [["flat", t("myFlat")]] : []), ["history", t("history")],
-    ["events", "🎉 Events"],
-    ["community", t("community")],
-    ...(admin ? [["members", t("members")]] : []),
-  ];
+  const tabs = isGuest
+    ? [["home", "🏠"], ["events", "🎉 Events"], ["community", t("community")]]
+    : [
+        ["home", "🏠"], ["dashboard", t("overview")], ["water", t("water")], ["maintenance", t("maintenance")],
+        ...(meFlat ? [["flat", t("myFlat")]] : []), ["history", t("history")],
+        ["events", "🎉 Events"],
+        ["community", t("community")],
+        ...(admin ? [["members", t("members")]] : []),
+      ];
 
   return (
     <div style={S.app}>
@@ -301,14 +310,20 @@ export default function Dashboard({
       )}
 
       <main style={{ ...S.main, ...(mobile ? { padding: "16px 14px", paddingBottom: dirty ? 90 : 110 } : {}) }}>
+        {isGuest && (
+          <div style={{ background: "#FFF8E6", border: "1.5px solid #E8C86A", borderRadius: 12, padding: "10px 14px", fontSize: 13, color: "#7A5C1A", marginBottom: 14 }}>
+            You're a family member of <b>{config?.name || "this building"}</b>. Contact the admin for full resident access to bills and payments.
+          </div>
+        )}
         {tab === "home" && (
           <HomeHub
             myName={myName} meFlat={meFlat} admin={admin} mobile={mobile} t={t}
             waterLabel={dw.label} maintLabel={dm.label}
-            myWaterBill={dispWater.rows.find((r) => r.flat === meFlat)?.bill || 0}
-            maintPerFlat={dispMaint.perFlat}
+            myWaterBill={dispWater?.rows?.find((r) => r.flat === meFlat)?.bill || 0}
+            maintPerFlat={dispMaint?.perFlat || 0}
             activityCount={(activities || []).filter((a) => Date.now() - (a.createdAt || 0) < 7 * 86400000).length}
             eventCount={(events || []).length}
+            isGuest={isGuest}
             onNav={setTab}
           />
         )}
@@ -380,12 +395,10 @@ export default function Dashboard({
       {/* ===== MOBILE BOTTOM NAV ===== */}
       {mobile && !dirty && (
         <nav style={MB.bottomNav}>
-          {[
-            ["home", "🏠", t("home")],
-            ["water", "💧", t("water")],
-            ["maintenance", "🔧", t("maintenance")],
-            ["community", "📊", t("community")],
-          ].map(([k, icon, label]) => (
+          {(isGuest
+            ? [["home", "🏠", t("home")], ["community", "📊", t("community")]]
+            : [["home", "🏠", t("home")], ["water", "💧", t("water")], ["maintenance", "🔧", t("maintenance")], ["community", "📊", t("community")]]
+          ).map(([k, icon, label]) => (
             <button key={k} onClick={() => setTab(k)} style={{ ...MB.bottomNavItem, ...(tab === k ? MB.bottomNavItemActive : {}) }}>
               <span style={{ fontSize: 20 }}>{icon}</span>
               <span style={{ fontSize: 10, marginTop: 2 }}>{label}</span>
@@ -1694,17 +1707,22 @@ function Drawer({ children, onClose }) {
 }
 
 /* ---- Home hub — icon grid with live data summaries ---- */
-function HomeHub({ myName, meFlat, admin, mobile, t, waterLabel, maintLabel, myWaterBill, maintPerFlat, activityCount, eventCount, onNav }) {
-  const cards = [
-    { key: "water", icon: "💧", label: t("water"), sub: waterLabel || t("current"), value: myWaterBill > 0 ? money(myWaterBill) : t("view"), color: "#4B86E0" },
-    { key: "maintenance", icon: "🔧", label: t("maintenance"), sub: maintLabel || t("current"), value: maintPerFlat > 0 ? money(maintPerFlat) : t("view"), color: "#E8883C" },
-    { key: "dashboard", icon: "📋", label: t("overview"), sub: t("billsPayments"), value: t("view"), color: "#6B5CE7" },
-    ...(meFlat ? [{ key: "flat", icon: "🏠", label: t("myFlat"), sub: `${t("flat")} ${meFlat}`, value: t("view"), color: "#2FA84F" }] : []),
-    { key: "events", icon: "🎉", label: "Events", sub: eventCount > 0 ? `${eventCount} event${eventCount === 1 ? "" : "s"}` : "Festivals & funds", value: t("view"), color: "#D08C30" },
-    { key: "community", icon: "📊", label: t("community"), sub: activityCount > 0 ? `${activityCount} ${t("recentActivity")}` : t("pollsUpdates"), value: activityCount > 0 ? `${activityCount} new` : t("view"), color: "#D64B8A" },
-    { key: "history", icon: "📜", label: t("history"), sub: t("pastMonths"), value: t("view"), color: "#8A8A9A" },
-    ...(admin ? [{ key: "members", icon: "👥", label: t("members"), sub: t("rolesFlats"), value: t("manage"), color: "#B07A0E" }] : []),
-  ];
+function HomeHub({ myName, meFlat, admin, mobile, t, waterLabel, maintLabel, myWaterBill, maintPerFlat, activityCount, eventCount, isGuest, onNav }) {
+  const eventsCard = { key: "events", icon: "🎉", label: "Events", sub: eventCount > 0 ? `${eventCount} event${eventCount === 1 ? "" : "s"}` : "Festivals & funds", value: t("view"), color: "#D08C30" };
+  const communityCard = { key: "community", icon: "📊", label: t("community"), sub: activityCount > 0 ? `${activityCount} ${t("recentActivity")}` : t("pollsUpdates"), value: activityCount > 0 ? `${activityCount} new` : t("view"), color: "#D64B8A" };
+
+  const cards = isGuest
+    ? [eventsCard, communityCard]
+    : [
+        { key: "water", icon: "💧", label: t("water"), sub: waterLabel || t("current"), value: myWaterBill > 0 ? money(myWaterBill) : t("view"), color: "#4B86E0" },
+        { key: "maintenance", icon: "🔧", label: t("maintenance"), sub: maintLabel || t("current"), value: maintPerFlat > 0 ? money(maintPerFlat) : t("view"), color: "#E8883C" },
+        { key: "dashboard", icon: "📋", label: t("overview"), sub: t("billsPayments"), value: t("view"), color: "#6B5CE7" },
+        ...(meFlat ? [{ key: "flat", icon: "🏠", label: t("myFlat"), sub: `${t("flat")} ${meFlat}`, value: t("view"), color: "#2FA84F" }] : []),
+        eventsCard,
+        communityCard,
+        { key: "history", icon: "📜", label: t("history"), sub: t("pastMonths"), value: t("view"), color: "#8A8A9A" },
+        ...(admin ? [{ key: "members", icon: "👥", label: t("members"), sub: t("rolesFlats"), value: t("manage"), color: "#B07A0E" }] : []),
+      ];
 
   return (
     <div>
