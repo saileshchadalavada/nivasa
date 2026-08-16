@@ -122,23 +122,32 @@ export default function App() {
 
   /* SEC-01 self-heal: when the user's membership is gone (admin removed them)
      or the building itself was deleted, clean the stale building ID from their
-     own account and redirect to the next available building or Landing. */
+     own account and redirect to the next available building or Landing.
+     Guards:
+     - Skip entirely during an active guest join flow (race: Firestore write not
+       yet visible to the subscription when the effect first fires).
+     - Debounce 3 s: a brief null during subscription startup should not trigger
+       cleanup — only act when genuinely inaccessible after settling. */
   useEffect(() => {
     if (!user || !effectiveBid) return;
+    if (isGuestFlow || guestJoinStarted.current) return;
     const inaccessible = membership === null || config === null;
     if (!inaccessible) return;
 
-    removeOwnBuildingReference(user.uid, effectiveBid)
-      .then(() => {
-        if (getStored() === effectiveBid) {
-          setStored("");
-        }
-        setActiveBid("");
-      })
-      .catch((error) => {
-        console.error("Could not clean building reference", error);
-      });
-  }, [user, effectiveBid, membership, config]);
+    const timer = setTimeout(() => {
+      removeOwnBuildingReference(user.uid, effectiveBid)
+        .then(() => {
+          if (getStored() === effectiveBid) {
+            setStored("");
+          }
+          setActiveBid("");
+        })
+        .catch((error) => {
+          console.error("Could not clean building reference", error);
+        });
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [user, effectiveBid, membership, config]); // eslint-disable-line
 
   // Guest fast-path: once membership resolves as guest, mark water/maint as ready
   // so the loading guard doesn't wait for subscriptions that guests don't need.
