@@ -189,40 +189,25 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
   };
 
   const shareWhatsApp = () => {
+    const catMap = {};
+    expenses.forEach((ex) => { const c = ex.category || "misc"; catMap[c] = (catMap[c] || 0) + Number(ex.amount || 0); });
+    const topCats = Object.entries(catMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([cat, amt]) => `${CATEGORIES[cat] || cat} ${money(amt)}`)
+      .join(" | ");
+
     const lines = [
-      `🎉 *${ev.name} – Collection Status*`,
+      `🎉 *${ev.name}*`,
       ``,
-      `💰 Opening balance: ${money(ev.openingBalance || 0)}`,
-      `💰 Total collected: ${money(totalCollected)}`,
-      `💸 Total spent: ${money(totalSpent)}`,
-      `🏦 *Balance: ${money(balance)}*`,
+      `💰 Collected: ${money(totalCollected)} (${donations.length} donors)`,
+      `💸 Spent: ${money(totalSpent)} (${expenses.length} expenses)`,
+      `🏦 Balance: ${money(balance)}`,
+      ...(topCats ? [``, `Top categories: ${topCats}`] : []),
+      ``,
+      `📖 View full details on Nivasa:`,
+      `https://nivasa-myhomeapp.vercel.app/?b=${bid}&tab=events&e=${ev.id}`,
     ];
-    if (ev.targetAmount > 0) {
-      lines.push(`🎯 Target: ${money(ev.targetAmount)} (${progress}% reached)`);
-    }
-    if (donations.length > 0) {
-      lines.push(``, `🙏 *Donors (${donations.length})*`);
-      [...donations]
-        .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
-        .forEach((d) => {
-          const who = d.isExternal || d.type === "external"
-            ? `[Ext] ${d.name}`
-            : `Flat ${d.flat}${d.name ? ` (${d.name})` : ""}`;
-          const tag = d.type === "velampata" ? " (Velam Pata)" : d.type === "contra" ? " (item)" : "";
-          lines.push(`${who}: ${money(d.amount)}${tag}`);
-        });
-    }
-    if (expenses.length > 0) {
-      lines.push(``, `💸 *Expenses (${expenses.length})*`);
-      expenses.forEach((ex) => {
-        lines.push(`${ex.description}${ex.date ? ` (${fmtDate(ex.date)})` : ""}: ${money(ex.amount)}`);
-      });
-    }
-    const pending = receivables.filter((r) => r.status === "pending");
-    if (pending.length > 0) {
-      lines.push(``, `📋 *Pending receivables*`);
-      pending.forEach((r) => lines.push(`Flat ${r.flat} – ${r.description}: ${money(r.amount)}`));
-    }
     window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
   };
 
@@ -379,7 +364,9 @@ function DonationsTab({ ev, admin, mobile, residential, onSave }) {
                 <div>
                   {d.isExternal || d.type === "external"
                     ? <><span style={E.extTag}>Ext</span> {d.name}</>
-                    : <><b style={{ fontFamily: display }}>Flat {d.flat}</b>{d.name ? <span style={{ color: T.muted, fontSize: 12.5, marginLeft: 4 }}>{d.name}</span> : null}</>}
+                    : d.flat
+                      ? <><b style={{ fontFamily: display }}>Flat {d.flat}</b>{d.name ? <span style={{ color: T.muted, fontSize: 12.5, marginLeft: 4 }}>{d.name}</span> : null}</>
+                      : <b style={{ fontFamily: display }}>{d.name || "—"}</b>}
                   <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>{DON_TYPES[d.type] || d.type} · {fmtDate(d.date)}</div>
                   {d.remarks && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>{d.remarks}</div>}
                 </div>
@@ -414,7 +401,9 @@ function DonationsTab({ ev, admin, mobile, residential, onSave }) {
                   <td style={S.td}>
                     {d.isExternal || d.type === "external"
                       ? <><span style={E.extTag}>Ext</span> {d.name}</>
-                      : <><b>Flat {d.flat}</b>{d.name ? <span style={{ color: T.muted, fontSize: 12.5, marginLeft: 4 }}>{d.name}</span> : null}</>}
+                      : d.flat
+                        ? <><b>Flat {d.flat}</b>{d.name ? <span style={{ color: T.muted, fontSize: 12.5, marginLeft: 4 }}>{d.name}</span> : null}</>
+                        : <b>{d.name || "—"}</b>}
                   </td>
                   <td style={{ ...S.td, fontSize: 12.5, color: T.inkSoft }}>{DON_TYPES[d.type] || d.type}</td>
                   <td style={{ ...S.td, ...S.num, fontWeight: 700, color: T.money }}>{money(d.amount)}</td>
@@ -848,24 +837,27 @@ function EventPosterButton({ ev }) {
       const nameLines = wrapText(ctx, ev.name, W - pad * 2);
       const headerH = 80 + nameLines.length * 60 + 60;
 
-      // Donors: top 12 by amount
-      const topDonors = [...donations]
-        .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
-        .slice(0, 12);
-      const rowH = 52;
-      const donSecH = topDonors.length > 0 ? 56 + topDonors.length * rowH + 24 : 0;
+      // Top 8 donors
+      const sortedDonors = [...donations].sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
+      const topDonors = sortedDonors.slice(0, 8);
+      const moreCount = Math.max(0, donations.length - 8);
+      const donRowH = 56;
+      const donSecH = topDonors.length > 0 ? 60 + topDonors.length * donRowH + (moreCount > 0 ? 44 : 0) + 24 : 0;
 
-      // Expenses by category
+      // Expenses by category with bars
       const catMap = {};
       expenses.forEach((ex) => { const c = ex.category || "misc"; catMap[c] = (catMap[c] || 0) + Number(ex.amount || 0); });
       const cats = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
-      const catSecH = cats.length > 0 ? 56 + cats.length * rowH + 24 : 0;
+      const maxCatAmt = cats.length > 0 ? cats[0][1] : 1;
+      const catRowH = 64;
+      const catSecH = cats.length > 0 ? 60 + cats.length * catRowH + 24 : 0;
 
       // Pending receivables
       const pending = receivables.filter((r) => r.status === "pending");
-      const recSecH = pending.length > 0 ? 56 + pending.length * rowH + 24 : 0;
+      const recRowH = 56;
+      const recSecH = pending.length > 0 ? 60 + pending.length * recRowH + 24 : 0;
 
-      const stripH = 190;
+      const stripH = 200;
       const footerH = 100;
       const H = headerH + stripH + donSecH + catSecH + recSecH + footerH;
 
@@ -899,7 +891,7 @@ function EventPosterButton({ ev }) {
       nameLines.forEach((line) => { ctx.fillText(line, pad, hy); hy += 60; });
 
       ctx.fillStyle = "rgba(255,255,255,0.88)";
-      ctx.font = "500 26px Poppins, system-ui, sans-serif";
+      ctx.font = "500 24px Poppins, system-ui, sans-serif";
       ctx.fillText(`${ev.year} · ${ev.status === "active" ? "Active" : "Closed"}`, pad, hy + 12);
 
       // ─ Summary strip ─
@@ -911,13 +903,13 @@ function EventPosterButton({ ev }) {
       const cardAmounts = [ev.openingBalance || 0, totalCollected, totalSpent, balance];
       const cardColors = ["#1C2B2D", "#1A6B72", "#D94343", balance >= 0 ? "#1A6B72" : "#D94343"];
       const cardNotes = ["carry forward", `${donations.length} entries`, `${expenses.length} expenses`, balance >= 0 ? "available" : "shortfall"];
-      const gap = 12;
-      const cardW = Math.floor((W - pad * 2 - gap * 3) / 4);
-      const cardH = 130;
+      const cGap = 12;
+      const cardW = Math.floor((W - pad * 2 - cGap * 3) / 4);
+      const cardH = 150;
       const cardY = sy + (stripH - cardH) / 2;
 
       cardLabels.forEach((lbl, i) => {
-        const cx = pad + i * (cardW + gap);
+        const cx = pad + i * (cardW + cGap);
         ctx.fillStyle = "#FFFFFF";
         roundRect(ctx, cx, cardY, cardW, cardH, 12);
         ctx.fill();
@@ -925,72 +917,85 @@ function EventPosterButton({ ev }) {
         ctx.font = "600 18px Poppins, system-ui, sans-serif";
         ctx.fillText(lbl, cx + 14, cardY + 28);
         ctx.fillStyle = cardColors[i];
-        ctx.font = "700 28px Poppins, system-ui, sans-serif";
-        ctx.fillText(`₹${cardAmounts[i].toLocaleString("en-IN")}`, cx + 14, cardY + 74);
+        ctx.font = "700 32px Poppins, system-ui, sans-serif";
+        ctx.fillText(`₹${cardAmounts[i].toLocaleString("en-IN")}`, cx + 14, cardY + 84);
         ctx.fillStyle = "#9AA5A6";
-        ctx.font = "500 16px Poppins, system-ui, sans-serif";
-        ctx.fillText(cardNotes[i], cx + 14, cardY + 108);
+        ctx.font = "500 18px Poppins, system-ui, sans-serif";
+        ctx.fillText(cardNotes[i], cx + 14, cardY + 122);
       });
 
       let y = sy + stripH;
 
-      // ─ Donors section ─
+      // ─ Donors (top 8) ─
       if (topDonors.length > 0) {
         ctx.fillStyle = "#F5F6FA";
         ctx.fillRect(0, y, W, donSecH);
         ctx.fillStyle = "#1C2B2D";
-        ctx.font = "700 30px Poppins, system-ui, sans-serif";
+        ctx.font = "700 28px Poppins, system-ui, sans-serif";
         ctx.fillText(`Donors (${donations.length})`, pad, y + 44);
-        y += 56;
+        y += 60;
         topDonors.forEach((d, idx) => {
-          const ry = y + idx * rowH;
+          const ry = y + idx * donRowH;
           if (idx > 0) {
             ctx.strokeStyle = "rgba(0,0,0,0.06)"; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(pad, ry); ctx.lineTo(W - pad, ry); ctx.stroke();
           }
-          const displayName = d.isExternal || d.type === "external" ? `[Ext] ${d.name}` : d.name || `Flat ${d.flat}`;
-          const maxNameW = W - pad * 2 - 260;
-          ctx.fillStyle = "#1C2B2D";
+          const displayName = d.isExternal || d.type === "external"
+            ? `[Ext] ${d.name}`
+            : d.name || (d.flat ? `Flat ${d.flat}` : "—");
+          ctx.fillStyle = "#2D3B3E";
           ctx.font = "600 24px Poppins, system-ui, sans-serif";
-          const nameWrap = wrapText(ctx, displayName, maxNameW);
-          ctx.fillText(nameWrap[0] + (nameWrap.length > 1 ? "…" : ""), pad, ry + 34);
-          const typeLbl = DON_TYPES[d.type] || "";
-          if (typeLbl) {
-            ctx.fillStyle = "#2D3B3E";
-            ctx.font = "500 20px Poppins, system-ui, sans-serif";
-            ctx.fillText(typeLbl, pad + maxNameW + 10, ry + 34);
-          }
+          const maxNameW = W - pad * 2 - 220;
+          const nw = wrapText(ctx, displayName, maxNameW);
+          ctx.fillText(nw[0] + (nw.length > 1 ? "…" : ""), pad, ry + 36);
           ctx.fillStyle = "#1A6B72";
-          ctx.font = "700 26px Poppins, system-ui, sans-serif";
+          ctx.font = "700 32px Poppins, system-ui, sans-serif";
           const amtStr = `₹${Number(d.amount).toLocaleString("en-IN")}`;
-          ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 34);
+          ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 36);
         });
-        y += topDonors.length * rowH + 24;
+        y += topDonors.length * donRowH;
+        if (moreCount > 0) {
+          ctx.fillStyle = "#9AA5A6";
+          ctx.font = "600 20px Poppins, system-ui, sans-serif";
+          ctx.fillText(`+${moreCount} more donor${moreCount === 1 ? "" : "s"}`, pad, y + 28);
+          y += 44;
+        }
+        y += 24;
       }
 
-      // ─ Expenses by category ─
+      // ─ Expenses by category (horizontal bars) ─
       if (cats.length > 0) {
         ctx.fillStyle = "#FFFFFF";
         ctx.fillRect(0, y, W, catSecH);
         ctx.fillStyle = "#1C2B2D";
-        ctx.font = "700 30px Poppins, system-ui, sans-serif";
+        ctx.font = "700 28px Poppins, system-ui, sans-serif";
         ctx.fillText("Expenses by Category", pad, y + 44);
-        y += 56;
+        y += 60;
+        const maxBarW = W - pad * 2 - 200;
         cats.forEach(([cat, amt], idx) => {
-          const ry = y + idx * rowH;
+          const ry = y + idx * catRowH;
           if (idx > 0) {
             ctx.strokeStyle = "rgba(0,0,0,0.06)"; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(pad, ry); ctx.lineTo(W - pad, ry); ctx.stroke();
           }
-          ctx.fillStyle = "#1C2B2D";
+          ctx.fillStyle = "#2D3B3E";
           ctx.font = "600 24px Poppins, system-ui, sans-serif";
-          ctx.fillText(CATEGORIES[cat] || cat, pad, ry + 34);
+          ctx.fillText(CATEGORIES[cat] || cat, pad, ry + 26);
           ctx.fillStyle = "#D94343";
-          ctx.font = "700 26px Poppins, system-ui, sans-serif";
+          ctx.font = "700 24px Poppins, system-ui, sans-serif";
           const amtStr = `₹${amt.toLocaleString("en-IN")}`;
-          ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 34);
+          ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 26);
+          // Bar track
+          ctx.fillStyle = "#EEF0F2";
+          roundRect(ctx, pad, ry + 36, maxBarW, 14, 7);
+          ctx.fill();
+          // Bar fill
+          const barW = Math.max(14, Math.round((amt / maxCatAmt) * maxBarW));
+          ctx.fillStyle = "#1A6B72";
+          roundRect(ctx, pad, ry + 36, barW, 14, 7);
+          ctx.fill();
         });
-        y += cats.length * rowH + 24;
+        y += cats.length * catRowH + 24;
       }
 
       // ─ Pending receivables ─
@@ -998,24 +1003,24 @@ function EventPosterButton({ ev }) {
         ctx.fillStyle = "#FFFBF0";
         ctx.fillRect(0, y, W, recSecH);
         ctx.fillStyle = "#8B6A2E";
-        ctx.font = "700 30px Poppins, system-ui, sans-serif";
+        ctx.font = "700 28px Poppins, system-ui, sans-serif";
         ctx.fillText("Pending Receivables", pad, y + 44);
-        y += 56;
+        y += 60;
         pending.forEach((r, idx) => {
-          const ry = y + idx * rowH;
+          const ry = y + idx * recRowH;
           if (idx > 0) {
             ctx.strokeStyle = "rgba(139,106,46,0.15)"; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(pad, ry); ctx.lineTo(W - pad, ry); ctx.stroke();
           }
-          ctx.fillStyle = "#1C2B2D";
+          ctx.fillStyle = "#2D3B3E";
           ctx.font = "600 24px Poppins, system-ui, sans-serif";
-          ctx.fillText(r.flat ? `Flat ${r.flat} – ${r.description}` : r.description, pad, ry + 34);
+          ctx.fillText(r.flat ? `Flat ${r.flat} – ${r.description}` : r.description, pad, ry + 36);
           ctx.fillStyle = "#8B6A2E";
-          ctx.font = "700 26px Poppins, system-ui, sans-serif";
+          ctx.font = "700 32px Poppins, system-ui, sans-serif";
           const amtStr = `₹${Number(r.amount).toLocaleString("en-IN")}`;
-          ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 34);
+          ctx.fillText(amtStr, W - pad - ctx.measureText(amtStr).width, ry + 36);
         });
-        y += pending.length * rowH + 24;
+        y += pending.length * recRowH + 24;
       }
 
       // ─ Footer ─
@@ -1055,7 +1060,7 @@ function EventPosterButton({ ev }) {
 
   return (
     <button style={E.posterBtn} onClick={generate} disabled={busy}>
-      {busy ? "Generating…" : "📸 Poster"}
+      {busy ? "Generating…" : "📸 Download Poster"}
     </button>
   );
 }
