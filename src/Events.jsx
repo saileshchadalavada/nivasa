@@ -33,7 +33,7 @@ export default function Events({ bid, events, membership, flats, admin, mobile, 
 
   if (creating) {
     return (
-      <CreateEventForm bid={bid} events={sorted}
+      <CreateEventForm bid={bid}
         onDone={(id) => { setSelId(id); setCreating(false); }}
         onCancel={() => setCreating(false)} />
     );
@@ -81,16 +81,11 @@ export default function Events({ bid, events, membership, flats, admin, mobile, 
 }
 
 /* ---- Create Event Form ---- */
-function CreateEventForm({ bid, events, onDone, onCancel }) {
-  const lastClosed = [...events].filter((e) => e.status === "closed")
-    .sort((a, b) => (b.year || 0) - (a.year || 0))[0];
-
+function CreateEventForm({ bid, onDone, onCancel }) {
   const [name, setName] = useState("");
   const [year, setYear] = useState(new Date().getFullYear());
   const [targetAmount, setTargetAmount] = useState("");
-  const [openingBalance, setOpeningBalance] = useState(
-    lastClosed?.closingBalance ? String(lastClosed.closingBalance) : ""
-  );
+  const [openingBalance, setOpeningBalance] = useState("0");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -146,11 +141,6 @@ function CreateEventForm({ bid, events, onDone, onCancel }) {
             onChange={(e) => setOpeningBalance(e.target.value)} placeholder="0" />
         </label>
       </div>
-      {lastClosed && (
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
-          Last event "{lastClosed.name}" closed with {money(lastClosed.closingBalance || 0)}.
-        </div>
-      )}
       {err && <div style={E.err}>{err}</div>}
       <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
         <button style={E.ghostBtn} onClick={onCancel}>Cancel</button>
@@ -166,6 +156,8 @@ function CreateEventForm({ bid, events, onDone, onCancel }) {
 /* ---- Event Detail ---- */
 function EventDetail({ event: ev, bid, admin, mobile, residential }) {
   const [tab, setTab] = useState("donations");
+  const [editingOB, setEditingOB] = useState(false);
+  const [obDraft, setObDraft] = useState("");
 
   const donations = ev.donations || [];
   const expenses = ev.expenses || [];
@@ -180,6 +172,10 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
 
   const isActive = ev.status === "active";
   const patchEvent = (patch) => updateEvent(bid, ev.id, patch);
+
+  const startEditOB = () => { setObDraft(String(ev.openingBalance ?? 0)); setEditingOB(true); };
+  const saveOB = async () => { await patchEvent({ openingBalance: Number(obDraft) || 0 }); setEditingOB(false); };
+  const cancelOB = () => setEditingOB(false);
 
   const closeEvent = () => {
     if (window.confirm(
@@ -252,7 +248,29 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
 
       {/* Summary cards */}
       <div style={S.cards}>
-        <ECard label="Opening balance" value={money(ev.openingBalance || 0)} tone="ink" note="carry forward" />
+        <div style={S.card}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={S.cardLabel}>Opening balance</div>
+            {admin && isActive && !editingOB && (
+              <button style={E.editBtn} onClick={startEditOB} title="Edit opening balance">✏️</button>
+            )}
+          </div>
+          {editingOB ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+              <input type="number" style={{ ...S.fieldInput, width: 100, padding: "5px 8px", fontSize: 14, fontFamily: font }}
+                value={obDraft} autoFocus
+                onChange={(e) => setObDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveOB(); if (e.key === "Escape") cancelOB(); }} />
+              <button style={E.iconBtn} onClick={cancelOB} title="Cancel">✕</button>
+              <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "5px 12px", fontSize: 12 }} onClick={saveOB}>✓</button>
+            </div>
+          ) : (
+            <>
+              <div style={{ ...S.cardValue, color: T.ink }}>{money(ev.openingBalance || 0)}</div>
+              <div style={S.cardNote}>carry forward</div>
+            </>
+          )}
+        </div>
         <ECard label="Total collected" value={money(totalCollected)} tone="money" note={`${donations.length} entr${donations.length === 1 ? "y" : "ies"}`} />
         <ECard label="Total spent" value={money(totalSpent)} tone="owed" note={`${expenses.length} expense${expenses.length === 1 ? "" : "s"}`} />
         <ECard label="Balance" value={money(balance)} tone={balance >= 0 ? "money" : "owed"} note={ev.targetAmount > 0 ? `${progress}% of target` : "available"} />
