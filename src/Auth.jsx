@@ -17,6 +17,7 @@ export default function Auth({ inviteBid, guestFlow }) {
   const [busy, setBusy] = useState(false);
   const [bname, setBname] = useState("");
   const [mode, setMode] = useState("signin"); // "signin" | "create"
+  const [showForgot, setShowForgot] = useState(false);
 
   // Allow account creation if there's an invite bid OR it's a guest/community flow
   const canCreate = !!(inviteBid || guestFlow);
@@ -125,14 +126,26 @@ export default function Auth({ inviteBid, guestFlow }) {
         <div style={L.switchRow}>
           {mode === "signin" ? (
             canCreate ? (
-              <span>New here? <button style={L.linkBtn} onClick={() => { setMode("create"); setErr(""); }}>Create account</button></span>
+              <span>New here? <button style={L.linkBtn} onClick={() => { setMode("create"); setErr(""); setShowForgot(false); }}>Create account</button></span>
             ) : (
               <span style={{ fontSize: 12, color: T.muted }}>Need an account? Ask your building admin for an invite link.</span>
             )
           ) : (
-            <span>Already have an account? <button style={L.linkBtn} onClick={() => { setMode("signin"); setErr(""); }}>Sign in</button></span>
+            <span>Already have an account? <button style={L.linkBtn} onClick={() => { setMode("signin"); setErr(""); setShowForgot(false); }}>Sign in</button></span>
           )}
         </div>
+
+        {mode === "signin" && (
+          <div style={{ textAlign: "center", marginTop: 10 }}>
+            <button style={L.linkBtn} onClick={() => setShowForgot((v) => !v)}>Forgot PIN?</button>
+            {showForgot && (
+              <div style={L.forgotMsg}>
+                Contact your building admin to reset your account.
+                {bname ? ` (Admin of ${bname})` : ""}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -148,4 +161,5 @@ const L = {
   err: { marginTop:12, background: T.owedSoft || "#FEF2F2", color: T.owed || "#D94343", padding:"9px 12px", borderRadius:9, fontSize:13 },
   switchRow: { textAlign: "center", marginTop: 14, fontSize: 13, color: T.inkSoft },
   linkBtn: { background: "none", border: "none", color: T.water, fontWeight: 600, cursor: "pointer", fontFamily: font, fontSize: 13, padding: 0, textDecoration: "underline" },
+  forgotMsg: { marginTop: 8, fontSize: 12.5, color: T.inkSoft, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px", lineHeight: 1.45 },
 };
