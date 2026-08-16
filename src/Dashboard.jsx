@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { money, money2, labelFromStart, fmtDate, daysBetween } from "./util";
 import { computeWater as computeWaterEngine } from "./billing/waterEngine";
 import { computeMaint as computeMaintEngine } from "./billing/maintenanceEngine";
@@ -67,6 +67,13 @@ export default function Dashboard({
   const [initialActivityId] = useState(() => {
     try { return new URLSearchParams(window.location.search).get("a") || null; } catch { return null; }
   });
+
+  // Clear URL params after first render so page refreshes land on the home tab,
+  // not back on the deep-linked tab/event (affects both regular users and guests).
+  useEffect(() => {
+    try { window.history.replaceState({}, "", window.location.pathname); } catch {}
+  }, []); // eslint-disable-line
+
   const [openFlat, setOpenFlat] = useState(null);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
