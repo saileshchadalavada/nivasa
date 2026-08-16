@@ -1037,16 +1037,23 @@ function EventPosterButton({ ev }) {
       ctx.fillText(ev.name, pad, fy + 78);
 
       await new Promise((resolve, reject) => {
-        canvas.toBlob((blob) => {
+        canvas.toBlob(async (blob) => {
           if (!blob) { reject(new Error("toBlob returned null")); return; }
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.download = `${ev.name.replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40)}_poster.png`;
-          a.href = url;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          const filename = `${ev.name.replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40)}_poster.png`;
+          const file = new File([blob], filename, { type: "image/png" });
+          if (navigator.canShare?.({ files: [file] })) {
+            try { await navigator.share({ title: ev.name, files: [file] }); }
+            catch (e) { if (e.name !== "AbortError") console.error(e); }
+          } else {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.download = filename;
+            a.href = url;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+          }
           resolve();
         }, "image/png");
       });
