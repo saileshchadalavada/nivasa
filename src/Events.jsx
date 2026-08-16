@@ -173,7 +173,7 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
 
   const totalCollected = donations.reduce((s, d) => s + Number(d.amount || 0), 0);
   const totalSpent = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
-  const balance = Number(ev.openingBalance || 0) + totalCollected - totalSpent;
+  const balance = totalCollected - totalSpent;
   const progress = ev.targetAmount > 0
     ? Math.min(100, Math.round((balance / ev.targetAmount) * 100))
     : null;
