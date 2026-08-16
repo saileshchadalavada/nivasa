@@ -588,11 +588,20 @@ function PosterButton({ rich, activityId, title, body, appLink, config }) {
       const shortLink = appLink.length > 80 ? appLink.slice(0, 80) + "…" : appLink;
       ctx.fillText(shortLink, pad, fy + 74);
 
-      // Download
-      const link = document.createElement("a");
-      link.download = `${title.replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40)}_poster.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
+      await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (!blob) { reject(new Error("toBlob returned null")); return; }
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.download = `${title.replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40)}_poster.png`;
+          link.href = url;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          resolve();
+        }, "image/png");
+      });
     } catch (e) {
       console.error("Poster generation failed:", e);
       alert("Could not generate poster. Try taking a screenshot instead.");

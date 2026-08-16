@@ -1031,10 +1031,20 @@ function EventPosterButton({ ev }) {
       ctx.font = "500 20px Poppins, system-ui, sans-serif";
       ctx.fillText(ev.name, pad, fy + 78);
 
-      const a = document.createElement("a");
-      a.download = `${ev.name.replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40)}_poster.png`;
-      a.href = canvas.toDataURL("image/png");
-      a.click();
+      await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (!blob) { reject(new Error("toBlob returned null")); return; }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.download = `${ev.name.replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "_").slice(0, 40)}_poster.png`;
+          a.href = url;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          resolve();
+        }, "image/png");
+      });
     } catch (e) {
       console.error("Event poster generation failed:", e);
       alert("Could not generate poster. Try taking a screenshot instead.");
