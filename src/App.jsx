@@ -41,6 +41,7 @@ export default function App() {
   const [activeBid, setActiveBid] = useState("");
   const [creating, setCreating] = useState(false);
   const [guestJoinError, setGuestJoinError] = useState(null);
+  const [guestJoinRetry, setGuestJoinRetry] = useState(0);
 
   const [config, setConfig] = useState(undefined);
   const [flats, setFlats] = useState([]);
@@ -98,7 +99,7 @@ export default function App() {
     joinBuildingAsGuest(effectiveGuestBid, user.uid, account.username)
       .then(() => { console.log("[nivasa] Guest join result: success"); })
       .catch((e) => { console.log("[nivasa] Guest join FAILED:", e); guestJoinStarted.current = false; setGuestJoinError(e?.message || e?.code || "Could not join. Please try again."); });
-  }, [isGuestFlowActive, user?.uid, account?.username, effectiveGuestBid]); // eslint-disable-line
+  }, [isGuestFlowActive, user?.uid, account?.username, effectiveGuestBid, guestJoinRetry]); // eslint-disable-line
 
   // Clear sessionStorage once the user has confirmed guest membership (prevents stale loops).
   useEffect(() => {
@@ -369,6 +370,7 @@ const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
         <GuestJoinError error={guestJoinError} onRetry={() => {
           setGuestJoinError(null);
           guestJoinStarted.current = false;
+          setGuestJoinRetry((n) => n + 1); // increment causes the join effect to re-fire
         }} onSignOut={() => signOut(auth)} />
       );
     }
