@@ -163,6 +163,17 @@ export default function Dashboard({
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   };
 
+  const undoPay = async (flat) => {
+    const current = config?.payments || [];
+    const flatPays = current.filter((p) => p.flat === flat);
+    if (!flatPays.length) return;
+    const last = flatPays[flatPays.length - 1];
+    try {
+      const updated = current.filter((p) => p.id !== last.id);
+      await updateBuilding(bid, { payments: updated });
+    } catch (e) { alert("Undo failed: " + (e?.message || "")); }
+  };
+
   const tabs = isGuest
     ? [["home", "🏠"], ["events", "🎉 Events & Projects"], ["community", t("community")]]
     : [
@@ -343,7 +354,7 @@ export default function Dashboard({
             waterPeriod={dw} maintPeriod={dm}
             residential={residential} canWater={canWater} canMaint={canMaint} admin={admin} config={config}
             openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile}
-            onBroadcast={() => setShowBroadcast(true)} bid={bid} />
+            onBroadcast={() => setShowBroadcast(true)} bid={bid} onUndoPay={undoPay} />
         )}
         {showBroadcast && (
           <Broadcast residential={residential} members={members} water={dispWater} maint={dispMaint}
@@ -370,7 +381,8 @@ export default function Dashboard({
             onStartNext={onStartMaint} onDeletePeriod={onDeleteMaint} canDelete={canDeleteMaint}
             startReady={startReadyMaint} saving={saving} mobile={mobile} config={config} bid={bid} />
         )}
-        {tab === "flat" && !isGuest && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} config={config} />}
+        {tab === "flat" && !isGuest && <FlatStatement flat={meFlat} water={water} maint={maint} residential={residential} config={config}
+          bid={bid} onUndoPay={(admin || canWater || canMaint) ? undoPay : undefined} />}
         {tab === "history" && !isGuest && <History flat={meFlat} residential={residential} allFlats={allMeters} pastWater={pastWater} pastMaint={pastMaint} canPickAny={admin || canWater || canMaint} showSeedHistory={!!config.seededSrGold} corpusMonthly={Number(config?.corpus?.monthly || 0)} />}
         {tab === "events" && <Events bid={bid} events={events || []} membership={membership} flats={flats} admin={admin} mobile={mobile} initialEventId={initialEventId} />}
         {tab === "community" && <Community bid={bid} activities={activities || []} membership={membership} members={members} config={config} admin={admin} mobile={mobile} initialActivityId={initialActivityId} />}
@@ -379,7 +391,8 @@ export default function Dashboard({
 
       {openFlat && (
         <Drawer onClose={() => setOpenFlat(null)}>
-          <FlatStatement flat={openFlat} water={water} maint={maint} residential={residential} config={config} embedded />
+          <FlatStatement flat={openFlat} water={water} maint={maint} residential={residential} config={config} embedded
+            bid={bid} onUndoPay={(admin || canWater || canMaint) ? undoPay : undefined} />
         </Drawer>
       )}
 
@@ -434,7 +447,7 @@ function roleText(membership, admin, meFlat) {
 }
 
 /* ============================= OVERVIEW ============================= */
-function Overview({ water, maint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, openFlat, onShare, mobile, onBroadcast, bid }) {
+function Overview({ water, maint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, openFlat, onShare, mobile, onBroadcast, bid, onUndoPay }) {
   const payments = config?.payments || [];
   const outstanding = config?.outstanding || {};
   const corpus = maint.corpusMonthly || 0;
@@ -522,8 +535,20 @@ function Overview({ water, maint, waterPeriod, maintPeriod, residential, canWate
       <div style={{ ...S.tileGrid, gridTemplateColumns: `repeat(${perFloor}, 1fr)` }}>
         {orderedFlats.map((f) => {
           const st = statusOf(f.flat);
+          const handleTileClick = () => {
+            if (st === "paid" && onUndoPay && (admin || canWater || canMaint)) {
+              const flatPays = payments.filter((p) => p.flat === f.flat);
+              const last = flatPays[flatPays.length - 1];
+              const label = last ? ` of ${money(Number(last.amount || 0))}${last.date ? ` from ${last.date}` : ""}` : "";
+              if (window.confirm(`Mark flat ${f.flat} as unpaid?\n\nThis will undo the last recorded payment${label}.`)) {
+                onUndoPay(f.flat);
+                return;
+              }
+            }
+            openFlat(f.flat);
+          };
           return (
-            <button key={f.flat} className="tile" onClick={() => openFlat(f.flat)}
+            <button key={f.flat} className="tile" onClick={handleTileClick}
               style={{ ...S.tile, background: tileBg[st], boxShadow: `inset 0 -4px 0 rgba(0,0,0,.16)` }}>
               {f.flat}<span style={S.tileSub}>{st === "paid" ? "paid" : st === "partial" ? "part" : "due"}</span>
             </button>
@@ -1553,7 +1578,7 @@ function DateField({ label, value, onChange, readOnly }) {
 }
 
 /* ========================= FLAT STATEMENT ========================= */
-function FlatStatement({ flat, water, maint, residential, config, embedded }) {
+function FlatStatement({ flat, water, maint, residential, config, embedded, bid, onUndoPay }) {
   const w = water.rows.find((r) => r.flat === flat);
   const f = residential.find((x) => x.flat === flat);
   if (!w || !f) return <div style={{ color: T.muted }}>No statement for this flat yet.</div>;
@@ -1606,6 +1631,20 @@ function FlatStatement({ flat, water, maint, residential, config, embedded }) {
       )}
 
       <Line label={balance <= 0 ? "✓ Fully paid" : "Remaining balance"} val={balance <= 0 ? "₹0" : money(balance)} strong color={balance <= 0 ? T.money : T.owed} />
+
+      {balance <= 0 && allPayments.length > 0 && onUndoPay && (
+        <div style={{ textAlign: "center", marginTop: 10 }}>
+          <button onClick={() => {
+            const last = allPayments[allPayments.length - 1];
+            const label = money(Number(last.amount || 0)) + (last.date ? ` from ${last.date}` : "");
+            if (window.confirm(`Undo last payment of ${label} for Flat ${flat}?\n\nThe flat's balance will go back up.`)) {
+              onUndoPay(flat);
+            }
+          }} style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 13, textDecoration: "underline", fontFamily: font }}>
+            ↩ Undo last payment
+          </button>
+        </div>
+      )}
 
       {owedBack > 0 && <div style={S.stOwed}>You fronted <b>{money(owedBack)}</b> in adhoc expenses. It's credited against your share.</div>}
     </div>
