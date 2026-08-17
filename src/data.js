@@ -8,7 +8,7 @@ import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, onSnapshot, writeBatch, query, arrayUnion, arrayRemove,
   runTransaction,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { db, auth } from "./firebase";
 import { buildFlatsForSetup, buildSeedWater, buildSeedMaint, nextMonthBounds } from "./seedData";
 import { WATER_2026 } from "./historicalWaterPeriods";
 
@@ -95,17 +95,46 @@ export const updateBuilding = async (bid, patch) => {
 };
 
 /* ---- membership / join ---- */
-export async function joinBuilding(bid, uid, username) {
-  const batch = writeBatch(db);
-  batch.set(memberRef(bid, uid), { username, flat: null, phone: null, roles: [], residentType: "owner", joinedAt: Date.now() }, { merge: true });
-  batch.update(userRef(uid), { buildings: arrayUnion(bid) });
-  await batch.commit();
-}
-export async function joinBuildingAsGuest(bid, uid, username) {
-  const batch = writeBatch(db);
-  batch.set(memberRef(bid, uid), { username, flat: null, roles: [], residentType: "guest", joinedAt: Date.now() }, { merge: true });
-  batch.update(userRef(uid), { buildings: arrayUnion(bid) });
-  await batch.commit();
+
+/* SEC-10: Invite-based membership creation now runs on a trusted server
+   endpoint (/api/join-building). Browser clients can NOT write to
+   buildings/{bid}/members directly — firestore.rules blocks it.
+   The endpoint verifies the Firebase ID token, checks the invite code
+   against the private building doc, and atomically creates the membership
+   and updates users/{uid}.buildings. Throws an Error whose .code matches
+   the API error contract (INVALID_INVITE_CODE, BUILDING_NOT_FOUND, etc.). */
+export async function joinBuildingByInvite(bid, inviteCode) {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    const err = new Error("Not signed in");
+    err.code = "UNAUTHENTICATED";
+    throw err;
+  }
+  const idToken = await currentUser.getIdToken();
+  let resp;
+  try {
+    resp = await fetch("/api/join-building", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ bid, inviteCode }),
+    });
+  } catch {
+    const err = new Error("Network error");
+    err.code = "NETWORK_ERROR";
+    throw err;
+  }
+  let data = null;
+  try { data = await resp.json(); } catch { /* ignore parse errors */ }
+  if (!resp.ok) {
+    const code = (data && data.error) || "INTERNAL";
+    const err = new Error(code);
+    err.code = code;
+    throw err;
+  }
+  return data;
 }
 export const subscribeMembership = (bid, uid, cb) =>
   onSnapshot(memberRef(bid, uid),

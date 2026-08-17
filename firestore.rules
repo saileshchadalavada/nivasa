@@ -98,8 +98,10 @@ service cloud.firestore {
         return value == 'owner' || value == 'tenant' || value == 'guest';
       }
 
-      // SEC-03: building config readable by authenticated users only
-      allow read: if signedIn();
+      // SEC-10: private building config readable only by members / admin.
+      // Non-members must use publicBuildings/{bid} for pre-membership display.
+      allow get: if isMember() || isAdmin();
+      allow list: if false;
       allow create: if signedIn() && request.resource.data.adminUid == uid();
       allow update, delete: if isAdmin();
 
@@ -151,17 +153,12 @@ service cloud.firestore {
 
         allow read: if isMember() || isAdmin();
 
-        // Item 5: validate member shape on creation
-        allow create: if signedIn()
-          && validMemberShape(request.resource.data)
-          && (
-            (
-              uid() == m
-              && request.resource.data.roles.size() == 0
-              && request.resource.data.flat == null
-            )
-            || isAdmin()
-          );
+        // SEC-10: browser clients may NOT self-create membership.
+        // Invited members are created by the trusted /api/join-building endpoint
+        // (Admin SDK, bypasses rules). Founder membership is created in the
+        // atomic building-setup batch. Admins can add members directly.
+        allow create: if validMemberShape(request.resource.data)
+          && (isAdmin() || isCreatingBuildingAsAdmin());
 
         allow update: if (
             isAdmin()

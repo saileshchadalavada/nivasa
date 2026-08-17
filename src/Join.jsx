@@ -1,35 +1,52 @@
 import React, { useState, useEffect } from "react";
-import { getPublicBuilding, getBuilding, joinBuilding } from "./data";
+import { getPublicBuilding, joinBuildingByInvite } from "./data";
 import { styles as S, T, css, display, mono, font } from "./styles";
 
 /* Arrived via an invite link (?b=<bid>&join=<code>) for a building the account
-   isn't a member of yet. Confirm the code and join.
-   SEC-03: display data comes from publicBuildings (no auth needed for name/city).
-   Invite code is still read from the private building doc (requires signedIn). */
-export default function Join({ bid, code: codeFromUrl, uid, username, onJoined, onSignOut }) {
-  const [pub, setPub] = useState(undefined);   // public building info (name, city)
-  const [bld, setBld] = useState(undefined);   // private building info (inviteCode)
+   isn't a member of yet. SEC-10: pre-membership displays only use
+   publicBuildings/{bid} (name/city/state). Invite verification and member
+   creation are performed by the trusted /api/join-building endpoint. The
+   invite code is never read or compared in the browser. */
+export default function Join({ bid, code: codeFromUrl, onJoined, onSignOut }) {
+  const [pub, setPub] = useState(undefined);
   const [code, setCode] = useState(codeFromUrl || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
   useEffect(() => {
     getPublicBuilding(bid).then((b) => setPub(b || null)).catch(() => setPub(null));
-    getBuilding(bid).then((b) => setBld(b || null)).catch(() => setBld(null));
   }, [bid]);
 
-  const displayName = pub?.name || bld?.name || "";
-  const displayLocation = [pub?.city || bld?.city, pub?.state || bld?.state].filter(Boolean).join(", ");
-  const loaded = pub !== undefined || bld !== undefined;
-  const notFound = pub === null && bld === null;
+  const displayName = pub?.name || "";
+  const displayLocation = [pub?.city, pub?.state].filter(Boolean).join(", ");
+  const loaded = pub !== undefined;
+  const notFound = pub === null;
+
+  const messageForCode = (c) => {
+    switch (c) {
+      case "INVALID_INVITE_CODE":  return "That invite code doesn't match. Ask the admin for the current link.";
+      case "BUILDING_NOT_FOUND":   return "That building link is no longer valid.";
+      case "UNAUTHENTICATED":      return "Please sign in again and retry.";
+      case "ALREADY_MEMBER":       return "You're already a member — refreshing…";
+      case "RATE_LIMITED":         return "Too many attempts. Please wait a minute and try again.";
+      case "INVALID_REQUEST":      return "Invite code looks malformed. Check the link and try again.";
+      case "NETWORK_ERROR":        return "Network error. Check your connection and try again.";
+      default:                     return "Couldn't join. Please try again.";
+    }
+  };
 
   const join = async () => {
     setErr("");
-    if (!bld) return setErr("Could not verify invite code. Please try again.");
-    if (code.trim().toUpperCase() !== (bld.inviteCode || "")) return setErr("That invite code doesn't match. Ask the admin for the link.");
+    const trimmed = (code || "").trim();
+    if (!trimmed) return setErr("Enter the invite code from the admin's link.");
     setBusy(true);
-    try { await joinBuilding(bid, uid, username); onJoined(bid); }
-    catch (e) { setErr("Couldn't join. Try again."); setBusy(false); }
+    try {
+      const result = await joinBuildingByInvite(bid, trimmed);
+      onJoined(bid, result);
+    } catch (e) {
+      setErr(messageForCode(e?.code));
+      setBusy(false);
+    }
   };
 
   return (
@@ -49,9 +66,10 @@ export default function Join({ bid, code: codeFromUrl, uid, username, onJoined, 
             <p style={W.sub}>{displayLocation}</p>
             <label style={W.label}>Invite code</label>
             <input value={code} onChange={(e)=>setCode(e.target.value.toUpperCase())}
-              placeholder="from the WhatsApp link" style={{ ...W.input, fontFamily: mono, letterSpacing: 2 }} />
+              placeholder="from the WhatsApp link" style={{ ...W.input, fontFamily: mono, letterSpacing: 2 }}
+              autoCapitalize="characters" autoCorrect="off" />
             {err && <div style={W.err}>{err}</div>}
-            <button className="primaryBtn" style={{ ...S.primaryBtn, width:"100%", padding:"13px", marginTop:14 }} onClick={join} disabled={busy || !bld}>
+            <button className="primaryBtn" style={{ ...S.primaryBtn, width:"100%", padding:"13px", marginTop:14 }} onClick={join} disabled={busy || !code.trim()}>
               {busy ? "Joining…" : `Join ${displayName}`}
             </button>
           </>

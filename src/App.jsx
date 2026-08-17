@@ -8,7 +8,6 @@ import {
   subscribeMaintPeriods, saveMaintPeriod, startNextMaintPeriod, deleteMaintPeriod, ensureMaintPeriod,
   subscribeActivities,
   subscribeEvents,
-  joinBuildingAsGuest,
   deleteBuilding, setPaidFlag, backfillWater2026,
   removeOwnBuildingReference,
 } from "./data";
@@ -29,10 +28,11 @@ const setStored = (v) => { try { localStorage.setItem(LS, v); } catch {} };
 const clearUrl = () => { try { window.history.replaceState({}, "", window.location.pathname); } catch {} };
 const newest = (arr) => arr.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
-// Guest flow sessionStorage: persists the guest bid across auth redirects that clear URL params
-const GUEST_SS_KEY = "nivasa_guest_bid";
-const getGuestSS = () => { try { return sessionStorage.getItem(GUEST_SS_KEY) || ""; } catch { return ""; } };
-const setGuestSS = (v) => { try { if (v) sessionStorage.setItem(GUEST_SS_KEY, v); else sessionStorage.removeItem(GUEST_SS_KEY); } catch {} };
+// SEC-10: guest auto-join has been removed. Browser clients cannot create
+// membership directly under the tightened firestore.rules. Deep links that
+// used to auto-join guests (?b=...&tab=community without a code) now route
+// through the invite-code Join screen; users without an invite are turned
+// away with a clear message.
 
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
@@ -40,9 +40,6 @@ export default function App() {
   const [account, setAccount] = useState(undefined);
   const [activeBid, setActiveBid] = useState("");
   const [creating, setCreating] = useState(false);
-  const [guestJoinError, setGuestJoinError] = useState(null);
-  const [guestJoinRetry, setGuestJoinRetry] = useState(0);
-  const [guestJoinComplete, setGuestJoinComplete] = useState(false);
 
   const [config, setConfig] = useState(undefined);
   const [flats, setFlats] = useState([]);
@@ -65,21 +62,6 @@ export default function App() {
   const params = new URLSearchParams(window.location.search);
   const urlBid = params.get("b") || "";
   const urlCode = params.get("join") || params.get("code") || "";
-  const urlTab = params.get("tab") || "";
-  // Guest flow: community/events deep link without an invite code
-  const isGuestFlow = !!(urlBid && (urlTab === "community" || urlTab === "events") && !urlCode);
-  const guestJoinStarted = useRef(false);
-
-  // Persist guest bid to sessionStorage SYNCHRONOUSLY so it's available on the very first render,
-  // before any effects run. setGuestSS is idempotent and doesn't trigger React state changes.
-  if (isGuestFlow && urlBid) setGuestSS(urlBid);
-  const ssGuestBid = getGuestSS();
-  // isGuestFlowActive stays true even after URL is cleared (e.g. OAuth redirect) as long as
-  // sessionStorage still holds the bid.
-  const isGuestFlowActive = isGuestFlow || !!ssGuestBid;
-  const effectiveGuestBid = urlBid || ssGuestBid;
-
-  console.log("[nivasa] isGuestFlow:", isGuestFlow, "isGuestFlowActive:", isGuestFlowActive, "urlBid:", urlBid, "urlTab:", urlTab, "ssGuestBid:", ssGuestBid);
 
   useEffect(() => onAuthStateChanged(auth, async (u) => {
     setUser(u);
@@ -90,27 +72,9 @@ export default function App() {
 
   useEffect(() => { if (!user) return; return subscribeAccount(user.uid, setAccount); }, [user]);
 
-  // Auto-join as guest when arriving via community/events deep link
-  useEffect(() => {
-    console.log("[nivasa] Guest join effect — user:", !!user, "account:", !!account, "isMemberOf:", isMemberOf(effectiveGuestBid), "started:", guestJoinStarted.current, "isGuestFlowActive:", isGuestFlowActive);
-    if (!isGuestFlowActive || !user || !account || isMemberOf(effectiveGuestBid)) return;
-    if (guestJoinStarted.current) return;
-    guestJoinStarted.current = true;
-    setGuestJoinError(null);
-    joinBuildingAsGuest(effectiveGuestBid, user.uid, account.username)
-      .then(() => { console.log("[nivasa] Guest join result: success"); setGuestJoinComplete(true); })
-      .catch((e) => { console.log("[nivasa] Guest join FAILED:", e); guestJoinStarted.current = false; setGuestJoinError(e?.message || e?.code || "Could not join. Please try again."); });
-  }, [isGuestFlowActive, user?.uid, account?.username, effectiveGuestBid, guestJoinRetry]); // eslint-disable-line
-
-  // Clear sessionStorage once the user has confirmed guest membership (prevents stale loops).
-  useEffect(() => {
-    const bid = getGuestSS();
-    if (bid && account && (account.buildings || []).includes(bid) && membership) {
-      setGuestSS("");
-      console.log("[nivasa] Guest flow complete — cleared sessionStorage for", bid);
-    }
-  }, [account, membership]); // eslint-disable-line
-
+  // Building-name lookup for the switcher menu. account.buildings is populated
+  // only after the user is a confirmed member, so getBuilding() is authorized
+  // by the new isMember-gated rule.
   useEffect(() => {
     const bids = account?.buildings || [];
     let alive = true;
@@ -120,8 +84,7 @@ export default function App() {
   }, [account]);
 
   const isMemberOf = (bid) => !!(account?.buildings || []).includes(bid);
-  // For guest flow, skip Join.jsx — auto-join happens via the effect above
-  const joinContext = user && account && urlBid && !isMemberOf(urlBid) && !isGuestFlow;
+  const joinContext = user && account && urlBid && !isMemberOf(urlBid);
   const effectiveBid = useMemo(() => {
     if (!account || joinContext) return "";
     if (urlBid && isMemberOf(urlBid)) return urlBid;
@@ -131,17 +94,14 @@ export default function App() {
     return (account.buildings || [])[0] || "";
   }, [account, activeBid, urlBid, joinContext]);
 
-  // Subscribe to core building data (always, regardless of membership type)
+  // SEC-10: buildings/{bid} is now readable only by members. effectiveBid is
+  // set only when the user is already in account.buildings (see the useMemo
+  // above), so the subscription starts post-membership.
   useEffect(() => {
     if (!user || !effectiveBid) {
       setConfig(undefined); setFlats([]); setMembers([]); setMembership(undefined);
       setAllWater(null); setAllMaint(null); setActivities(null); setEvents(null); return;
     }
-    // During guest flow, hold off until the server confirms the batch write. Firestore's
-    // local cache can optimistically update account.buildings before batch.commit() resolves,
-    // causing subscriptions to fire before the member doc exists — which permanently kills
-    // the onSnapshot listener with permission-denied.
-    if (isGuestFlowActive && guestJoinStarted.current && !guestJoinComplete) return;
     setConfig(undefined); setMembership(undefined); setAllWater(null); setAllMaint(null);
     setActivities(null); setEvents(null);
     setWaterDirty(false); setMaintDirty(false);
@@ -154,11 +114,10 @@ export default function App() {
       subscribeEvents(effectiveBid, setEvents),
     ];
     return () => unsubs.forEach((u) => u && u());
-  }, [user, effectiveBid, guestJoinComplete]); // eslint-disable-line
+  }, [user, effectiveBid]); // eslint-disable-line
 
-  // Subscribe to water/maint ONLY after membership resolves as non-guest.
-  // Guests never have access to billing data — subscribing would cause permission
-  // errors that leave allWater/allMaint null and block the loading guard forever.
+  // Subscribe to water/maint once membership resolves. Any remaining
+  // residentType==="guest" documents from before SEC-10 still skip billing.
   useEffect(() => {
     if (!effectiveBid || membership === undefined) return;
     if (membership === null || membership?.residentType === "guest") {
@@ -176,15 +135,10 @@ export default function App() {
   /* SEC-01 self-heal: when the user's membership is gone (admin removed them)
      or the building itself was deleted, clean the stale building ID from their
      own account and redirect to the next available building or Landing.
-     Guards:
-     - Skip entirely during an active guest join flow (race: Firestore write not
-       yet visible to the subscription when the effect first fires).
-     - Debounce 3 s: a brief null during subscription startup should not trigger
-       cleanup — only act when genuinely inaccessible after settling. */
+     Debounce 3 s: a brief null during subscription startup should not trigger
+     cleanup — only act when genuinely inaccessible after settling. */
   useEffect(() => {
     if (!user || !effectiveBid) return;
-    console.log("[nivasa] SEC-01 check — membership:", membership, "config:", !!config, "isGuestFlow:", isGuestFlow, "isGuestFlowActive:", isGuestFlowActive, "guestStarted:", guestJoinStarted.current);
-    if (isGuestFlowActive || guestJoinStarted.current) return;
     const inaccessible = membership === null || config === null;
     if (!inaccessible) return;
 
@@ -361,39 +315,21 @@ const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
   };
 
   if (!authReady) return <Splash text="Loading…" />;
-  if (!user) return <Auth inviteBid={urlBid} guestFlow={isGuestFlow} />;
+  if (!user) return <Auth inviteBid={urlBid} />;
   if (!account) return <Splash text="Loading…" />;
   if (creating) {
     return <Setup adminUid={user.uid} username={account.username}
       existingNames={(account.buildings || []).map((b) => bnames[b]).filter(Boolean)}
       onDone={(bid) => { setCreating(false); switchTo(bid); }} onCancel={() => setCreating(false)} />;
   }
-  // Guest flow: show splash while auto-join is in progress (before account.buildings updates).
-  // Also covers the sessionStorage-fallback case where URL was cleared by an auth redirect.
-  if (isGuestFlowActive && effectiveGuestBid && !isMemberOf(effectiveGuestBid)) {
-    if (guestJoinError) {
-      return (
-        <GuestJoinError error={guestJoinError} onRetry={() => {
-          setGuestJoinError(null);
-          guestJoinStarted.current = false;
-          setGuestJoinRetry((n) => n + 1); // increment causes the join effect to re-fire
-        }} onSignOut={() => signOut(auth)} />
-      );
-    }
-    return <Splash text="Joining as family member…" />;
-  }
   if (joinContext) {
-    return <Join bid={urlBid} code={urlCode} uid={user.uid} username={account.username}
+    return <Join bid={urlBid} code={urlCode}
       onJoined={(bid) => switchTo(bid)} onSignOut={() => signOut(auth)} />;
   }
   if (!effectiveBid) {
     return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
   }
-  // If membership resolved to null (not a member of this building), go to Landing.
-  // Guard: skip during guest flow — membership can transiently be null before the Firestore
-  // subscription delivers the first server snapshot (Firestore local cache may miss the new doc).
-  console.log("[nivasa] Account buildings:", account?.buildings, "membership:", membership, "effectiveBid:", effectiveBid, "isGuestFlowActive:", isGuestFlowActive);
-  if (membership === null && !isGuestFlowActive && !guestJoinStarted.current) {
+  if (membership === null) {
     return <Landing username={account.username} onCreate={() => setCreating(true)} onSignOut={() => signOut(auth)} />;
   }
   // Show onboarding as soon as config + membership are ready — no need to wait for water/maint.
@@ -460,25 +396,3 @@ function Splash({ text }) {
   );
 }
 
-function GuestJoinError({ error, onRetry, onSignOut }) {
-  return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-      background: T.bg, fontFamily: font, padding: 20 }}>
-      <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div style={{ maxWidth: 360, width: "100%", background: "#fff", borderRadius: 16, padding: "28px 24px",
-        border: `1px solid ${T.line}`, textAlign: "center" }}>
-        <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
-        <p style={{ fontWeight: 600, fontSize: 15, color: T.ink, margin: "0 0 8px" }}>Couldn't join as family member</p>
-        <p style={{ fontSize: 13, color: T.inkSoft, margin: "0 0 20px", lineHeight: 1.5 }}>{error}</p>
-        <button className="primaryBtn" onClick={onRetry}
-          style={{ width: "100%", padding: "11px", marginBottom: 10 }}>
-          Try again
-        </button>
-        <button onClick={onSignOut}
-          style={{ background: "none", border: "none", color: T.inkSoft, fontSize: 13, cursor: "pointer", fontFamily: font }}>
-          Sign out
-        </button>
-      </div>
-    </div>
-  );
-}

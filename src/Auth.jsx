@@ -7,10 +7,14 @@ import { styles as S, T, css, display, mono, font } from "./styles";
 
 /* SEC-09: separate sign-in from account creation.
    - Sign in: always attempted first.
-   - Create: only when the user explicitly chooses "Create account" AND has
-     a valid invite context (inviteBid OR guestFlow). Network, disabled-user,
-     and config errors never fall through to account creation. */
-export default function Auth({ inviteBid, guestFlow }) {
+   - Create: only when the user explicitly chooses "Create account" AND has a
+     valid invite context (inviteBid). SEC-10: the guest deep-link auto-join
+     path has been removed, so only inviteBid unlocks account creation.
+     Network, disabled-user, and config errors never fall through to account
+     creation.
+   SEC-10: only publicBuildings/{bid} is read pre-membership (name/city/state);
+   the private buildings/{bid} doc is never fetched from this screen. */
+export default function Auth({ inviteBid }) {
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
@@ -19,8 +23,7 @@ export default function Auth({ inviteBid, guestFlow }) {
   const [mode, setMode] = useState("signin"); // "signin" | "create"
   const [showForgot, setShowForgot] = useState(false);
 
-  // Allow account creation if there's an invite bid OR it's a guest/community flow
-  const canCreate = !!(inviteBid || guestFlow);
+  const canCreate = !!inviteBid;
 
   useEffect(() => {
     if (inviteBid) getPublicBuilding(inviteBid).then((b) => b && setBname(b.name || "")).catch(() => {});
@@ -46,8 +49,8 @@ export default function Auth({ inviteBid, guestFlow }) {
         }
         try {
           await createUserWithEmailAndPassword(auth, email, pin);
-          // For guest flow, App.jsx's auto-join effect handles joinBuildingAsGuest
-          // For regular invite flow, Join.jsx handles joinBuilding
+          // Join.jsx picks up from here — it posts the invite code to the
+          // trusted /api/join-building endpoint (SEC-10).
         } catch (ce) {
           const code = ce?.code || "";
           if (code === "auth/email-already-in-use") {
@@ -87,12 +90,8 @@ export default function Auth({ inviteBid, guestFlow }) {
   };
 
   const subtitle = mode === "create"
-    ? guestFlow
-      ? (bname ? `Join ${bname} as a family member` : "Join as a family member")
-      : (bname ? `Create account to join ${bname}` : "Create your account")
-    : guestFlow
-      ? (bname ? `Sign in to view ${bname} community` : "Sign in to your account")
-      : (bname ? `Sign in to join ${bname}` : "Sign in to your account");
+    ? (bname ? `Create account to join ${bname}` : "Create your account")
+    : (bname ? `Sign in to join ${bname}` : "Sign in to your account");
 
   return (
     <div style={L.wrap}>
