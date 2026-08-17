@@ -67,13 +67,23 @@ service cloud.firestore {
       function cfg() { return get(/databases/$(database)/documents/buildings/$(bid)).data; }
       function hasCfg() { return exists(/databases/$(database)/documents/buildings/$(bid)); }
       function isMember() { return signedIn() && exists(/databases/$(database)/documents/buildings/$(bid)/members/$(uid())); }
-      function myRoles() { return get(/databases/$(database)/documents/buildings/$(bid)/members/$(uid())).data.roles; }
+      function memberData() { return get(/databases/$(database)/documents/buildings/$(bid)/members/$(uid())).data; }
+      function myRoles() { return memberData().roles; }
       function isAdmin() { return signedIn() && hasCfg() && (uid() == cfg().adminUid || (isMember() && myRoles().hasAny(['admin']))); }
+
+      // SEC-11: distinguish guest members from full residents. Guests
+      // must not receive private building config, member lists, flats,
+      // water/maintenance data, or full event financials.
+      function isGuest() { return isMember() && memberData().residentType == 'guest'; }
+      function isResidentMember() {
+        return isMember() && (memberData().residentType == 'owner' || memberData().residentType == 'tenant');
+      }
 
       // SEC-04: role-specific edit helpers
       function hasRole(role) { return isMember() && myRoles().hasAny([role]); }
       function canEditWater() { return isAdmin() || hasRole('water'); }
       function canEditMaint() { return isAdmin() || hasRole('treasurer'); }
+      function canCreateEventSummary() { return isAdmin() || hasRole('treasurer'); }
 
       // Item 6: allow child creation during atomic building setup batch
       function cfgAfter() {
@@ -98,9 +108,10 @@ service cloud.firestore {
         return value == 'owner' || value == 'tenant' || value == 'guest';
       }
 
-      // SEC-10: private building config readable only by members / admin.
-      // Non-members must use publicBuildings/{bid} for pre-membership display.
-      allow get: if isMember() || isAdmin();
+      // SEC-11: private building config readable only by resident members / admin.
+      // Guests must not receive inviteCode, payments, outstanding, or other
+      // private fields — they read publicBuildings/{bid} for display name only.
+      allow get: if isResidentMember() || isAdmin();
       allow list: if false;
       allow create: if signedIn() && request.resource.data.adminUid == uid();
       allow update, delete: if isAdmin();
@@ -151,12 +162,16 @@ service cloud.firestore {
                ).data.claimedByUid == uid();
         }
 
-        allow read: if isMember() || isAdmin();
+        // SEC-11: resident members and admin can list/read the full member
+        // roster; a guest can only read their own membership document.
+        allow get: if isResidentMember() || isAdmin() || (isMember() && uid() == m);
+        allow list: if isResidentMember() || isAdmin();
 
         // SEC-10: browser clients may NOT self-create membership.
-        // Invited members are created by the trusted /api/join-building endpoint
-        // (Admin SDK, bypasses rules). Founder membership is created in the
-        // atomic building-setup batch. Admins can add members directly.
+        // Invited residents are created by the trusted /api/join-building
+        // endpoint; guest memberships are created by /api/join-building-guest.
+        // Founder membership is created in the atomic building-setup batch.
+        // Admins can add members directly.
         allow create: if validMemberShape(request.resource.data)
           && (isAdmin() || isCreatingBuildingAsAdmin());
 
@@ -170,13 +185,12 @@ service cloud.firestore {
         allow delete: if isAdmin();
       }
 
-      // ── flats ──
-      // SEC-06 + Item 6: orphan prevention with isCreatingBuildingAsAdmin
+      // ── flats ── SEC-11: guests must not see flat/meter data.
       match /flats/{flat} {
-        allow read: if isMember();
+        allow read: if isResidentMember() || isAdmin();
         allow create: if isAdmin() || isCreatingBuildingAsAdmin();
         allow update: if isAdmin()
-          || (isMember()
+          || (isResidentMember()
               && resource.data.claimedByUid == null
               && request.resource.data.claimedByUid == uid()
               && request.resource.data.isCommon == false
@@ -185,16 +199,16 @@ service cloud.firestore {
         allow delete: if isAdmin();
       }
 
-      // ── water periods ── SEC-04 + Item 6
+      // ── water periods ── SEC-11: residents only.
       match /waterPeriods/{p} {
-        allow read: if isMember();
+        allow read: if isResidentMember() || isAdmin();
         allow create: if canEditWater() || isCreatingBuildingAsAdmin();
         allow update, delete: if canEditWater();
       }
 
-      // ── maintenance periods ── SEC-04 + Item 6
+      // ── maintenance periods ── SEC-11: residents only.
       match /maintPeriods/{p} {
-        allow read: if isMember();
+        allow read: if isResidentMember() || isAdmin();
         allow create: if canEditMaint() || isCreatingBuildingAsAdmin();
         allow update, delete: if canEditMaint();
       }
@@ -278,13 +292,31 @@ service cloud.firestore {
         }
       }
 
-      // ── cost presets ──
+      // ── cost presets ── SEC-11: residents only.
       match /costPresets/{p} {
-        allow read: if isMember();
+        allow read: if isResidentMember() || isAdmin();
         allow write: if canEditWater();
       }
 
-      // ── events (festival donations & expenses) ──
+      // ── SEC-11: guest invitation tokens ──
+      // Client-blocked entirely. Both /api/create-guest-invite and
+      // /api/join-building-guest use the Admin SDK, which bypasses these
+      // rules. Never expose stored token hashes to browser code.
+      match /guestInvites/{inviteId} {
+        allow read, write: if false;
+      }
+
+      // ── SEC-11: guest-safe event summary ──
+      // Contains only display-safe fields (name, totals, counts, dates).
+      // Guests read the summary instead of the full event document.
+      // Residents and admin can also read it. Only treasurer/admin write.
+      match /eventSummaries/{eid} {
+        allow read: if isMember();
+        allow create, update: if canCreateEventSummary();
+        allow delete: if isAdmin();
+      }
+
+      // ── events (festival donations & expenses) ── SEC-11: residents only.
       match /events/{eid} {
         function validEvent(data) {
           return data.keys().hasOnly([
@@ -301,7 +333,8 @@ service cloud.firestore {
             && data.updatedAt is int;
         }
 
-        allow read: if isMember();
+        // SEC-11: guests read eventSummaries; residents/admin read the full event.
+        allow read: if isResidentMember() || isAdmin();
 
         allow create: if isAdmin()
           && validEvent(request.resource.data);

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { createActivity, updateActivity, deleteActivity, castVote, subscribeActivityVotes } from "./data";
+import { createActivity, updateActivity, deleteActivity, castVote, subscribeActivityVotes, createGuestInvite } from "./data";
 import { money, fmtDate } from "./util";
 import { styles as S, T, display, mono, font } from "./styles";
 
@@ -58,6 +58,7 @@ export default function Community({ bid, activities, membership, members, config
       {sorted.map((a) => (
         <ActivityCard key={a.id} activity={a} bid={bid} myUid={myUid} myFlat={myFlat} admin={admin}
           members={members} expanded={expanded === a.id} mobile={mobile}
+          isGuest={membership?.residentType === "guest"}
           votes={votesMap[a.id] || []}
           onToggle={() => setExpanded(expanded === a.id ? null : a.id)}
           onEdit={() => setEditing(a.id)} editing={editing === a.id}
@@ -250,7 +251,7 @@ function CreateForm({ type, bid, membership, onDone, onCancel }) {
 /* ──────────────────────────────────────────
    ACTIVITY CARD
    ────────────────────────────────────────── */
-function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expanded, mobile, votes, onToggle, onEdit, editing, onEditDone, config }) {
+function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expanded, mobile, votes, onToggle, onEdit, editing, onEditDone, config, isGuest }) {
   const isPoll = a.type === "poll";
   const isMeeting = a.type === "meeting";
   const rich = a.rich || null; // { type, content?, fileUrl?, fileName? }
@@ -261,10 +262,11 @@ function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expande
   const myVote = isPoll ? votes.find((v) => v.uid === myUid) : undefined;
   const ago = timeAgo(a.createdAt);
 
-  // Deep link to this specific activity
-  const appLink = `${window.location.origin}${window.location.pathname}?b=${bid}&tab=community&a=${a.id}`;
-
-  const shareText = () => {
+  // SEC-11: family-guest share links now require a server-generated token.
+  // We defer building the URL until the user actually clicks Share, so we
+  // don't burn an invite for anyone who's only viewing the activity.
+  const [sharingInvite, setSharingInvite] = React.useState(false);
+  const shareText = (appLink) => {
     let msg = `${TYPES[a.type]} *${a.title}*\n`;
 
     if (a.type === "announcement") {
@@ -298,8 +300,25 @@ function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expande
     return msg;
   };
 
-  const share = () => {
-    const url = `https://wa.me/?text=${encodeURIComponent(shareText())}`;
+  const share = async () => {
+    if (sharingInvite) return;
+    setSharingInvite(true);
+    let inviteUrl;
+    try {
+      const result = await createGuestInvite({ bid, targetSection: "community" });
+      inviteUrl = result?.url;
+      if (!inviteUrl) throw new Error("MISSING_URL");
+    } catch (e) {
+      setSharingInvite(false);
+      const code = e?.code || "";
+      if (code === "NOT_AUTHORIZED") alert("Only admin, owner, or tenant members can share. Ask a resident to share it.");
+      else alert("Couldn't create a shareable link. Please try again in a moment.");
+      return;
+    }
+    // Append the activity anchor so the shared link opens THIS activity.
+    const withAnchor = inviteUrl.includes("a=") ? inviteUrl : `${inviteUrl}&a=${a.id}`;
+    const url = `https://wa.me/?text=${encodeURIComponent(shareText(withAnchor))}`;
+    setSharingInvite(false);
     window.open(url, "_blank");
   };
 
@@ -421,11 +440,19 @@ function ActivityCard({ activity: a, bid, myUid, myFlat, admin, members, expande
             </div>
           )}
 
-          {/* Actions */}
+          {/* Actions — SEC-11: guests cannot generate guest invites or delete. */}
           <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-            <button style={C.shareBtn} onClick={share}>💬 Share on WhatsApp</button>
-            {hasRich && <PosterButton rich={rich} activityId={a.id} title={a.title} body={a.body} appLink={appLink} config={config} />}
-            {admin && <button style={C.ghostBtn} onClick={doDelete}>🗑 Delete</button>}
+            {!isGuest && (
+              <button
+                style={{ ...C.shareBtn, opacity: sharingInvite ? 0.6 : 1, cursor: sharingInvite ? "wait" : "pointer" }}
+                disabled={sharingInvite}
+                onClick={share}
+              >
+                {sharingInvite ? "Creating link…" : "💬 Share on WhatsApp"}
+              </button>
+            )}
+            {hasRich && <PosterButton rich={rich} activityId={a.id} title={a.title} body={a.body} appLink={`${window.location.origin}${window.location.pathname}?b=${bid}&tab=community&a=${a.id}`} config={config} />}
+            {admin && !isGuest && <button style={C.ghostBtn} onClick={doDelete}>🗑 Delete</button>}
           </div>
         </div>
       )}

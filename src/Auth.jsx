@@ -5,29 +5,29 @@ import { userToEmail } from "./seedData";
 import { getPublicBuilding } from "./data";
 import { styles as S, T, css, display, mono, font } from "./styles";
 
-/* SEC-09: separate sign-in from account creation.
-   - Sign in: always attempted first.
-   - Create: only when the user explicitly chooses "Create account" AND has a
-     valid invite context (inviteBid). SEC-10: the guest deep-link auto-join
-     path has been removed, so only inviteBid unlocks account creation.
-     Network, disabled-user, and config errors never fall through to account
-     creation.
-   SEC-10: only publicBuildings/{bid} is read pre-membership (name/city/state);
-   the private buildings/{bid} doc is never fetched from this screen. */
-export default function Auth({ inviteBid }) {
+/* SEC-11: account creation is enabled when the URL either carries a
+   normal resident invite code OR a family-guest token. Client presence
+   of the guest token doesn't prove it's valid — the trusted server
+   endpoint does the real check.
+   Only publicBuildings/{bid} is read here (name/city/state); the private
+   building doc is never touched pre-membership. */
+export default function Auth({ buildingId, normalInviteFlow, guestFlow, guestBuildingName, inviteBid }) {
+  // Backward compat: older App.jsx passed `inviteBid` only. Accept either name.
+  const bid = buildingId || inviteBid || "";
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [bname, setBname] = useState("");
+  const [bname, setBname] = useState(guestBuildingName || "");
   const [mode, setMode] = useState("signin"); // "signin" | "create"
   const [showForgot, setShowForgot] = useState(false);
 
-  const canCreate = !!inviteBid;
+  const canCreate = !!(normalInviteFlow || guestFlow || (bid && !normalInviteFlow && !guestFlow && inviteBid));
 
   useEffect(() => {
-    if (inviteBid) getPublicBuilding(inviteBid).then((b) => b && setBname(b.name || "")).catch(() => {});
-  }, [inviteBid]);
+    if (guestBuildingName) { setBname(guestBuildingName); return; }
+    if (bid) getPublicBuilding(bid).then((b) => b && setBname(b.name || "")).catch(() => {});
+  }, [bid, guestBuildingName]);
 
   const go = async () => {
     setErr("");
@@ -90,8 +90,12 @@ export default function Auth({ inviteBid }) {
   };
 
   const subtitle = mode === "create"
-    ? (bname ? `Create account to join ${bname}` : "Create your account")
-    : (bname ? `Sign in to join ${bname}` : "Sign in to your account");
+    ? guestFlow
+      ? (bname ? `Create an account to view ${bname} as a family member` : "Create an account as a family member")
+      : (bname ? `Create account to join ${bname}` : "Create your account")
+    : guestFlow
+      ? (bname ? `Sign in to view ${bname} as a family member` : "Sign in to your account")
+      : (bname ? `Sign in to join ${bname}` : "Sign in to your account");
 
   return (
     <div style={L.wrap}>

@@ -28,6 +28,8 @@ const activityRef = (bid, id) => doc(db, "buildings", bid, "activities", id);
 const presetRef = (bid, id) => doc(db, "buildings", bid, "costPresets", id);
 const eventsCol = (bid) => collection(db, "buildings", bid, "events");
 const eventRef = (bid, id) => doc(db, "buildings", bid, "events", id);
+const eventSummariesCol = (bid) => collection(db, "buildings", bid, "eventSummaries");
+const eventSummaryRef = (bid, id) => doc(db, "buildings", bid, "eventSummaries", id);
 const votesCol = (bid, aid) => collection(db, "buildings", bid, "activities", aid, "votes");
 const voteRef = (bid, aid, uid) => doc(db, "buildings", bid, "activities", aid, "votes", uid);
 const publicBldRef = (bid) => doc(db, "publicBuildings", bid);
@@ -104,6 +106,34 @@ export const updateBuilding = async (bid, patch) => {
    and updates users/{uid}.buildings. Throws an Error whose .code matches
    the API error contract (INVALID_INVITE_CODE, BUILDING_NOT_FOUND, etc.). */
 export async function joinBuildingByInvite(bid, inviteCode) {
+  return postJsonWithIdToken("/api/join-building", { bid, inviteCode });
+}
+
+/* SEC-11: Create a shareable family-guest invitation URL. Authorized for
+   admin / owner / tenant members; guests cannot generate invites. Returns
+   { url, expiresAt, maxUses } from the trusted server endpoint. */
+export async function createGuestInvite({ bid, targetSection, eventId = null }) {
+  return postJsonWithIdToken("/api/create-guest-invite", {
+    bid,
+    targetSection,
+    eventId: eventId || undefined,
+  });
+}
+
+/* SEC-11: Enroll the signed-in user as a family guest via a guest token
+   captured from the invite URL. The server validates the token, section
+   and event scope, then creates a guest membership. Never writes to
+   Firestore directly from the browser. */
+export async function joinBuildingAsGuestByInvite({ bid, guestToken, targetSection, eventId = null }) {
+  return postJsonWithIdToken("/api/join-building-guest", {
+    bid,
+    guestToken,
+    targetSection,
+    eventId: eventId || undefined,
+  });
+}
+
+async function postJsonWithIdToken(path, body) {
   const currentUser = auth.currentUser;
   if (!currentUser) {
     const err = new Error("Not signed in");
@@ -113,13 +143,13 @@ export async function joinBuildingByInvite(bid, inviteCode) {
   const idToken = await currentUser.getIdToken();
   let resp;
   try {
-    resp = await fetch("/api/join-building", {
+    resp = await fetch(path, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({ bid, inviteCode }),
+      body: JSON.stringify(body),
     });
   } catch {
     const err = new Error("Network error");
@@ -482,26 +512,86 @@ export async function removeMember(bid, uid, flat) {
   await batch.commit();
 }
 
-/* ---- EVENTS (festival donations & expenses) ---- */
+/* ---- EVENTS (festival donations & expenses) ----
+   SEC-11: the full events/{eid} doc is resident-only. A parallel
+   eventSummaries/{eid} doc holds guest-safe fields (name, year, status,
+   totals, counts) and is what guests subscribe to. createEvent/updateEvent/
+   deleteEvent keep both in sync in a single client batch. */
 export const subscribeEvents = (bid, cb) =>
   onSnapshot(query(eventsCol(bid)),
     (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
     (err) => { console.error("subscribeEvents failed:", err.code, err.message); cb([]); });
+
+export const subscribeEventSummaries = (bid, cb) =>
+  onSnapshot(query(eventSummariesCol(bid)),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    (err) => { console.error("subscribeEventSummaries failed:", err.code, err.message); cb([]); });
+
+function computeEventSummary(data) {
+  const donations = Array.isArray(data.donations) ? data.donations : [];
+  const expenses = Array.isArray(data.expenses) ? data.expenses : [];
+  const collectedTotal = donations.reduce((s, d) => s + Number(d.amount || 0), 0);
+  const spentTotal = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const openingBalance = Number(data.openingBalance || 0);
+  const closingBalance = data.closingBalance != null ? Number(data.closingBalance) : null;
+  const balance = openingBalance + collectedTotal - spentTotal;
+  return {
+    name: String(data.name || ""),
+    year: Number(data.year || new Date().getFullYear()),
+    status: data.status === "closed" ? "closed" : "active",
+    targetAmount: Number(data.targetAmount || 0),
+    openingBalance,
+    collectedTotal,
+    spentTotal,
+    balance,
+    closingBalance,
+    donorCount: donations.length,
+    expenseCount: expenses.length,
+    updatedAt: Date.now(),
+  };
+}
+
 export async function createEvent(bid, data) {
   const ref = doc(eventsCol(bid));
-  await setDoc(ref, { ...data, createdAt: Date.now(), updatedAt: Date.now() });
+  const now = Date.now();
+  const full = { ...data, createdAt: now, updatedAt: now };
+  const batch = writeBatch(db);
+  batch.set(ref, full);
+  batch.set(eventSummaryRef(bid, ref.id), { ...computeEventSummary(full), createdAt: now });
+  await batch.commit();
   return ref.id;
 }
-export const updateEvent = (bid, id, patch) =>
-  updateDoc(eventRef(bid, id), { ...patch, updatedAt: Date.now() });
-export const deleteEvent = (bid, id) => deleteDoc(eventRef(bid, id));
+
+export async function updateEvent(bid, id, patch) {
+  // Read the current event so the derived summary reflects the merged state
+  // (patch may only touch a subset of fields). If the read fails, fall back
+  // to writing the event and letting the summary re-sync on the next update.
+  let current = {};
+  try {
+    const snap = await getDoc(eventRef(bid, id));
+    if (snap.exists()) current = snap.data() || {};
+  } catch { /* ignore — summary refresh will happen on the next update */ }
+  const merged = { ...current, ...patch };
+  const now = Date.now();
+  const batch = writeBatch(db);
+  batch.update(eventRef(bid, id), { ...patch, updatedAt: now });
+  batch.set(eventSummaryRef(bid, id), computeEventSummary(merged), { merge: true });
+  await batch.commit();
+}
+
+export async function deleteEvent(bid, id) {
+  const batch = writeBatch(db);
+  batch.delete(eventRef(bid, id));
+  batch.delete(eventSummaryRef(bid, id));
+  await batch.commit();
+}
 
 /* Admin-only: delete an entire building — every subcollection doc and the
    config document. The deleting admin's own account is cleaned up via
    currentUid; other members' stale building references are pruned on
    their next login via the self-heal effect in App.jsx (SEC-01). */
 export async function deleteBuilding(bid, currentUid) {
-  const cols = [flatsCol(bid), waterCol(bid), maintCol(bid), membersCol(bid), activitiesCol(bid), presetsCol(bid), eventsCol(bid)];
+  const cols = [flatsCol(bid), waterCol(bid), maintCol(bid), membersCol(bid), activitiesCol(bid), presetsCol(bid), eventsCol(bid), eventSummariesCol(bid)];
   // delete all subcollection docs (batched)
   for (const c of cols) {
     const snap = await getDocs(c);

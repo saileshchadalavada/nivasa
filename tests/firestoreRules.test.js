@@ -178,6 +178,119 @@ describeIfEmulator("firestore.rules — SEC-10 matrix", () => {
 
   /* ---------- founder atomic setup ---------- */
 
+  /* ---------- SEC-11: guests must not read private building ---------- */
+
+  it("denies a guest reading the private building doc (SEC-11 tighten of SEC-10)", async () => {
+    await seedBuilding({
+      bid: "b1",
+      adminUid: "adminA",
+      members: { guestX: { residentType: "guest" } },
+    });
+    const db = env.authenticatedContext("guestX").firestore();
+    await assertFails(getDoc(doc(db, "buildings", "b1")));
+  });
+
+  it("still allows an owner/tenant resident to read the private building doc", async () => {
+    await seedBuilding({
+      bid: "b1",
+      adminUid: "adminA",
+      members: { tenantX: { residentType: "tenant" } },
+    });
+    const db = env.authenticatedContext("tenantX").firestore();
+    await assertSucceeds(getDoc(doc(db, "buildings", "b1")));
+  });
+
+  it("guest cannot list the members roster", async () => {
+    await seedBuilding({
+      bid: "b1",
+      adminUid: "adminA",
+      members: {
+        guestX: { residentType: "guest" },
+        otherY: { residentType: "owner" },
+      },
+    });
+    const db = env.authenticatedContext("guestX").firestore();
+    await assertFails(getDocs(collection(db, "buildings", "b1", "members")));
+  });
+
+  it("guest can read their own membership doc", async () => {
+    await seedBuilding({
+      bid: "b1",
+      adminUid: "adminA",
+      members: { guestX: { residentType: "guest" } },
+    });
+    const db = env.authenticatedContext("guestX").firestore();
+    await assertSucceeds(getDoc(doc(db, "buildings", "b1", "members", "guestX")));
+  });
+
+  it("guest cannot read flats", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "buildings", "b1", "flats", "101"), { flat: "101", isCommon: false, claimedByUid: null });
+    });
+    await seedBuilding({
+      bid: "b1",
+      adminUid: "adminA",
+      members: { guestX: { residentType: "guest" } },
+    });
+    const db = env.authenticatedContext("guestX").firestore();
+    await assertFails(getDoc(doc(db, "buildings", "b1", "flats", "101")));
+  });
+
+  it("guest cannot read water periods", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "buildings", "b1", "waterPeriods", "seed"), { periodStart: "", periodEnd: "" });
+    });
+    await seedBuilding({
+      bid: "b1",
+      adminUid: "adminA",
+      members: { guestX: { residentType: "guest" } },
+    });
+    const db = env.authenticatedContext("guestX").firestore();
+    await assertFails(getDoc(doc(db, "buildings", "b1", "waterPeriods", "seed")));
+  });
+
+  it("guest cannot read full event doc, but can read the event summary", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "buildings", "b1", "events", "ev1"), {
+        name: "Test", year: 2026, status: "active",
+        donations: [{ amount: 100 }], expenses: [], receivables: [],
+        createdAt: 1, updatedAt: 1,
+      });
+      await setDoc(doc(db, "buildings", "b1", "eventSummaries", "ev1"), {
+        name: "Test", year: 2026, status: "active",
+        collectedTotal: 100, spentTotal: 0, balance: 100, donorCount: 1, expenseCount: 0, updatedAt: 1,
+      });
+    });
+    await seedBuilding({
+      bid: "b1",
+      adminUid: "adminA",
+      members: { guestX: { residentType: "guest" } },
+    });
+    const db = env.authenticatedContext("guestX").firestore();
+    await assertFails(getDoc(doc(db, "buildings", "b1", "events", "ev1")));
+    await assertSucceeds(getDoc(doc(db, "buildings", "b1", "eventSummaries", "ev1")));
+  });
+
+  it("guestInvites are entirely client-blocked (read + write)", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "buildings", "b1", "guestInvites", "hash123"), { status: "active", allowedSections: ["events"], maxUses: 10, usedCount: 0 });
+    });
+    await seedBuilding({
+      bid: "b1",
+      adminUid: "adminA",
+      members: { adminA: { roles: ["admin"] }, ownerX: { residentType: "owner" } },
+    });
+    const adminDb = env.authenticatedContext("adminA").firestore();
+    const ownerDb = env.authenticatedContext("ownerX").firestore();
+    await assertFails(getDoc(doc(adminDb, "buildings", "b1", "guestInvites", "hash123")));
+    await assertFails(getDoc(doc(ownerDb, "buildings", "b1", "guestInvites", "hash123")));
+    await assertFails(setDoc(doc(adminDb, "buildings", "b1", "guestInvites", "new"), { status: "active", allowedSections: ["events"] }));
+  });
+
   it("allows founder atomic building setup batch", async () => {
     const founderUid = "founder-1";
     const db = env.authenticatedContext(founderUid).firestore();

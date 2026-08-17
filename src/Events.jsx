@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { createEvent, updateEvent } from "./data";
+import { createEvent, updateEvent, createGuestInvite } from "./data";
 import { money, fmtDate } from "./util";
 import { styles as S, T, display, mono, font } from "./styles";
 
@@ -13,6 +13,7 @@ const DON_TYPES = {
 };
 
 export default function Events({ bid, events, membership, flats, admin, mobile, initialEventId }) {
+  const isGuest = membership?.residentType === "guest";
   const residential = useMemo(
     () => flats.filter((f) => !f.isCommon).sort((a, b) => a.flat.localeCompare(b.flat)),
     [flats]
@@ -31,7 +32,8 @@ export default function Events({ bid, events, membership, flats, admin, mobile, 
 
   const selEvent = selId ? events.find((e) => e.id === selId) : sorted[0] || null;
 
-  if (creating) {
+  // SEC-11: guests cannot create events. Only admin sees the New button.
+  if (creating && !isGuest) {
     return (
       <CreateEventForm bid={bid}
         onDone={(id) => { setSelId(id); setCreating(false); }}
@@ -43,7 +45,7 @@ export default function Events({ bid, events, membership, flats, admin, mobile, 
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
         <h2 style={S.section}>Events</h2>
-        {admin && <button style={E.newBtn} onClick={() => setCreating(true)}>+ New event</button>}
+        {admin && !isGuest && <button style={E.newBtn} onClick={() => setCreating(true)}>+ New event</button>}
       </div>
 
       {sorted.length === 0 ? (
@@ -64,7 +66,9 @@ export default function Events({ bid, events, membership, flats, admin, mobile, 
               </select>
             </div>
           )}
-          {selEvent && (
+          {selEvent && (isGuest ? (
+            <GuestEventView key={selEvent.id} summary={selEvent} />
+          ) : (
             <EventDetail
               key={selEvent.id}
               event={selEvent}
@@ -72,10 +76,60 @@ export default function Events({ bid, events, membership, flats, admin, mobile, 
               admin={admin}
               mobile={mobile}
               residential={residential}
+              canShare={!isGuest}
             />
-          )}
+          ))}
         </>
       )}
+    </>
+  );
+}
+
+/* SEC-11: guest-safe rendering. Uses only fields present on the
+   eventSummaries document — no donations, expenses, receivables, or
+   donor identities. */
+function GuestEventView({ summary }) {
+  const bal = Number(summary.balance ?? (Number(summary.openingBalance || 0) + Number(summary.collectedTotal || 0) - Number(summary.spentTotal || 0)));
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: display, fontWeight: 800, fontSize: 20, color: T.ink }}>{summary.name}</span>
+            <span style={{
+              fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20,
+              background: summary.status === "active" ? "#E8F9EE" : "#F1F1F8",
+              color: summary.status === "active" ? T.money : T.muted,
+              textTransform: "uppercase", letterSpacing: ".04em",
+            }}>{summary.status}</span>
+          </div>
+          <div style={{ fontSize: 12.5, color: T.muted, marginTop: 3 }}>
+            {summary.year}{Number(summary.targetAmount) > 0 && ` · Target: ${money(summary.targetAmount)}`}
+          </div>
+        </div>
+      </div>
+      <div style={S.cards}>
+        <div style={S.card}>
+          <div style={S.cardLabel}>Collected</div>
+          <div style={{ ...S.cardValue, color: T.money }}>{money(summary.collectedTotal || 0)}</div>
+          <div style={S.cardNote}>{Number(summary.donorCount || 0)} donors</div>
+        </div>
+        <div style={S.card}>
+          <div style={S.cardLabel}>Spent</div>
+          <div style={{ ...S.cardValue, color: T.owed }}>{money(summary.spentTotal || 0)}</div>
+          <div style={S.cardNote}>{Number(summary.expenseCount || 0)} expenses</div>
+        </div>
+        <div style={S.card}>
+          <div style={S.cardLabel}>Balance</div>
+          <div style={{ ...S.cardValue, color: bal >= 0 ? T.money : T.owed }}>{money(bal)}</div>
+          <div style={S.cardNote}>
+            {Number(summary.openingBalance || 0) > 0 ? `Opening ${money(summary.openingBalance)} + collected − spent` : "collected − spent"}
+          </div>
+        </div>
+      </div>
+      <p style={{ marginTop: 20, fontSize: 13, color: T.inkSoft, lineHeight: 1.5 }}>
+        Family members see the totals. Ask a resident for the full breakdown of donations and expenses.
+      </p>
     </>
   );
 }
@@ -154,10 +208,11 @@ function CreateEventForm({ bid, onDone, onCancel }) {
 }
 
 /* ---- Event Detail ---- */
-function EventDetail({ event: ev, bid, admin, mobile, residential }) {
+function EventDetail({ event: ev, bid, admin, mobile, residential, canShare = true }) {
   const [tab, setTab] = useState("donations");
   const [editingOB, setEditingOB] = useState(false);
   const [obDraft, setObDraft] = useState("");
+  const [sharingInvite, setSharingInvite] = useState(false);
 
   const donations = ev.donations || [];
   const expenses = ev.expenses || [];
@@ -191,7 +246,9 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
     }
   };
 
-  const shareWhatsApp = () => {
+  const shareWhatsApp = async () => {
+    if (sharingInvite) return;
+    setSharingInvite(true);
     const catMap = {};
     expenses.forEach((ex) => { const c = ex.category || "misc"; catMap[c] = (catMap[c] || 0) + Number(ex.amount || 0); });
     const topCats = Object.entries(catMap)
@@ -199,6 +256,22 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
       .slice(0, 3)
       .map(([cat, amt]) => `${CATEGORIES[cat] || cat} ${money(amt)}`)
       .join(" | ");
+
+    // SEC-11: URL now carries a short-lived family-guest token generated by
+    // the trusted server. Never construct the URL directly here.
+    let url;
+    try {
+      const result = await createGuestInvite({ bid, targetSection: "events", eventId: ev.id });
+      url = result?.url;
+      if (!url) throw new Error("MISSING_URL");
+    } catch (e) {
+      setSharingInvite(false);
+      const code = e?.code || "";
+      if (code === "NOT_AUTHORIZED") alert("Only admin, owner, or tenant members can share events. Ask a resident to share it.");
+      else if (code === "EVENT_NOT_FOUND") alert("This event no longer exists.");
+      else alert("Couldn't create a shareable link. Please try again in a moment.");
+      return;
+    }
 
     const lines = [
       `🎉 *${ev.name}*`,
@@ -209,8 +282,9 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
       ...(topCats ? [``, `Top categories: ${topCats}`] : []),
       ``,
       `📖 View full details on Nivasa:`,
-      `https://nivasa-myhomeapp.vercel.app/?b=${bid}&tab=events&e=${ev.id}`,
+      url,
     ];
+    setSharingInvite(false);
     window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
   };
 
@@ -235,7 +309,15 @@ function EventDetail({ event: ev, bid, admin, mobile, residential }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button style={E.shareBtn} onClick={shareWhatsApp}>💬 Share</button>
+          {canShare && (
+            <button
+              style={{ ...E.shareBtn, opacity: sharingInvite ? 0.6 : 1, cursor: sharingInvite ? "wait" : "pointer" }}
+              disabled={sharingInvite}
+              onClick={shareWhatsApp}
+            >
+              {sharingInvite ? "Creating link…" : "💬 Share"}
+            </button>
+          )}
           <EventPosterButton ev={ev} />
           {admin && isActive && (
             <button style={E.closeBtn2} onClick={closeEvent}>Close event</button>

@@ -3,11 +3,12 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "./firebase";
 import {
   ensureAccount, subscribeAccount, subscribeBuilding, subscribeFlats, subscribeMembers,
-  subscribeMembership, getBuilding,
+  subscribeMembership, getBuilding, getPublicBuilding,
   subscribeWaterPeriods, saveWaterPeriod, startNextWaterPeriod, deleteWaterPeriod, ensureWaterPeriod,
   subscribeMaintPeriods, saveMaintPeriod, startNextMaintPeriod, deleteMaintPeriod, ensureMaintPeriod,
   subscribeActivities,
-  subscribeEvents,
+  subscribeEvents, subscribeEventSummaries,
+  joinBuildingAsGuestByInvite,
   deleteBuilding, backfillWater2026,
   removeOwnBuildingReference,
 } from "./data";
@@ -20,6 +21,7 @@ import Join from "./Join";
 import Setup from "./Setup";
 import Onboarding from "./Onboarding";
 import Dashboard from "./Dashboard";
+import { GuestEnrollment, IncompleteEventLink } from "./GuestEnrollment";
 import { T, css, font } from "./styles";
 
 const LS = "nivasa_active_bid";
@@ -28,11 +30,36 @@ const setStored = (v) => { try { localStorage.setItem(LS, v); } catch {} };
 const clearUrl = () => { try { window.history.replaceState({}, "", window.location.pathname); } catch {} };
 const newest = (arr) => arr.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
-// SEC-10: guest auto-join has been removed. Browser clients cannot create
-// membership directly under the tightened firestore.rules. Deep links that
-// used to auto-join guests (?b=...&tab=community without a code) now route
-// through the invite-code Join screen; users without an invite are turned
-// away with a clear message.
+// SEC-11: family-guest flow. A shared Events/Community link carries a
+// short-lived guest token that survives account creation via sessionStorage.
+// The token authorizes the trusted /api/join-building-guest endpoint to
+// create a restricted guest membership. No browser code decides whether the
+// token is valid — that stays server-side.
+const GUEST_SS_KEY = "nivasa_guest_ctx";
+const GUEST_TOKEN_ERRORS = new Set([
+  "INVALID_GUEST_INVITE", "GUEST_INVITE_EXPIRED", "GUEST_INVITE_REVOKED",
+  "GUEST_INVITE_EXHAUSTED", "SECTION_NOT_ALLOWED", "EVENT_NOT_ALLOWED",
+  "BUILDING_NOT_FOUND", "USER_PROFILE_NOT_FOUND",
+]);
+const isSupportedSection = (t) => t === "events" || t === "community";
+function getGuestCtx() {
+  try {
+    const raw = sessionStorage.getItem(GUEST_SS_KEY);
+    if (!raw) return null;
+    const ctx = JSON.parse(raw);
+    if (!ctx || typeof ctx !== "object") return null;
+    if (typeof ctx.bid !== "string" || !ctx.bid) return null;
+    if (typeof ctx.guestToken !== "string" || ctx.guestToken.length < 16) return null;
+    if (!isSupportedSection(ctx.targetSection)) return null;
+    return ctx;
+  } catch { return null; }
+}
+function setGuestCtx(ctx) {
+  try {
+    if (ctx) sessionStorage.setItem(GUEST_SS_KEY, JSON.stringify(ctx));
+    else sessionStorage.removeItem(GUEST_SS_KEY);
+  } catch {}
+}
 
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
@@ -62,6 +89,32 @@ export default function App() {
   const params = new URLSearchParams(window.location.search);
   const urlBid = params.get("b") || "";
   const urlCode = params.get("join") || params.get("code") || "";
+  const urlGuestToken = params.get("guest") || "";
+  const urlTab = params.get("tab") || "";
+  const urlEventId = params.get("e") || "";
+
+  // Persist a fresh guest URL to sessionStorage SYNCHRONOUSLY so it survives
+  // Firebase auth-state redirects that clear the query string.
+  if (urlBid && urlGuestToken && isSupportedSection(urlTab)) {
+    const existing = getGuestCtx();
+    // Prefer the URL if it differs from any stale ctx we might still hold.
+    if (!existing || existing.bid !== urlBid || existing.guestToken !== urlGuestToken || existing.eventId !== (urlEventId || null)) {
+      setGuestCtx({ bid: urlBid, guestToken: urlGuestToken, targetSection: urlTab, eventId: urlEventId || null, at: Date.now() });
+    }
+  }
+  const ssGuest = getGuestCtx();
+
+  // Flow classification. Evaluate the guest flow first so a plain
+  // ?b=X&tab=events&e=Y is never mistaken for a resident invite.
+  const isGuestFlow = !!ssGuest;
+  const isNormalInviteFlow = !!(urlBid && urlCode);
+  const isIncompleteEventLink =
+    !!urlBid && urlTab === "events" && !!urlEventId && !urlGuestToken && !urlCode && !isGuestFlow;
+
+  const [guestState, setGuestState] = useState("idle"); // "idle" | "preparing" | "enrolling" | "opening" | "error"
+  const [guestError, setGuestError] = useState(null);
+  const [guestPublicName, setGuestPublicName] = useState("");
+  const guestEnrollStarted = useRef(false);
 
   useEffect(() => onAuthStateChanged(auth, async (u) => {
     setUser(u);
@@ -74,17 +127,87 @@ export default function App() {
 
   // Building-name lookup for the switcher menu. account.buildings is populated
   // only after the user is a confirmed member, so getBuilding() is authorized
-  // by the new isMember-gated rule.
+  // by the isResidentMember-gated rule (residents/admin) OR — for existing
+  // guest members — falls back to publicBuildings for the display name only.
   useEffect(() => {
     const bids = account?.buildings || [];
     let alive = true;
-    Promise.all(bids.map((b) => getBuilding(b).catch(() => null)))
-      .then((list) => { if (!alive) return; const m = {}; list.forEach((b) => b && (m[b.id] = b.name)); setBnames(m); });
+    Promise.all(bids.map(async (b) => {
+      const full = await getBuilding(b).catch(() => null);
+      if (full) return { id: b, name: full.name };
+      const pub = await getPublicBuilding(b).catch(() => null);
+      return pub ? { id: b, name: pub.name } : null;
+    })).then((list) => {
+      if (!alive) return;
+      const m = {};
+      list.forEach((b) => b && (m[b.id] = b.name));
+      setBnames(m);
+    });
     return () => { alive = false; };
   }, [account]);
 
+  // Pre-load the public building name for the guest enrollment / incomplete
+  // link screens (both run BEFORE membership so buildings/{bid} is unreadable).
+  useEffect(() => {
+    const bid = (isGuestFlow && ssGuest?.bid) || (isIncompleteEventLink && urlBid) || "";
+    if (!bid) { setGuestPublicName(""); return; }
+    let alive = true;
+    getPublicBuilding(bid).then((b) => { if (alive && b) setGuestPublicName(b.name || ""); }).catch(() => {});
+    return () => { alive = false; };
+  }, [isGuestFlow, ssGuest?.bid, isIncompleteEventLink, urlBid]);
+
   const isMemberOf = (bid) => !!(account?.buildings || []).includes(bid);
-  const joinContext = user && account && urlBid && !isMemberOf(urlBid);
+  // SEC-11: only route to Join.jsx when we have a normal resident invite.
+  // Guest URLs go through the GuestEnrollment path instead.
+  const joinContext = user && account && urlBid && !isMemberOf(urlBid) && isNormalInviteFlow;
+
+  // Guest enrollment: after the user is authenticated, POST the token to
+  // /api/join-building-guest. Do not touch Firestore membership from here.
+  useEffect(() => {
+    if (!isGuestFlow || !user || !account || !ssGuest) return;
+    if (isMemberOf(ssGuest.bid)) {
+      // Already a member (owner/tenant/guest). Skip enrollment; the URL
+      // cleanup effect below will hand off to Dashboard with tab/e preserved.
+      guestEnrollStarted.current = false;
+      return;
+    }
+    if (guestEnrollStarted.current) return;
+    guestEnrollStarted.current = true;
+    setGuestError(null);
+    setGuestState("enrolling");
+    joinBuildingAsGuestByInvite({
+      bid: ssGuest.bid,
+      guestToken: ssGuest.guestToken,
+      targetSection: ssGuest.targetSection,
+      eventId: ssGuest.eventId,
+    }).then(() => {
+      // Wait for subscribeAccount to reflect the new bid, then the URL
+      // cleanup effect hands off to Dashboard.
+      setGuestState("opening");
+    }).catch((e) => {
+      const code = e?.code || "INTERNAL";
+      setGuestError(code);
+      setGuestState("error");
+      guestEnrollStarted.current = false;
+      // Unrecoverable token errors: clear the ctx so retry doesn't loop.
+      if (GUEST_TOKEN_ERRORS.has(code)) setGuestCtx(null);
+    });
+  }, [isGuestFlow, user?.uid, account?.buildings?.length, ssGuest?.bid]); // eslint-disable-line
+
+  // Once membership + account reflect the guest bid, clear the guest ctx and
+  // rewrite the URL to just b/tab/e so refreshes still land on the shared
+  // event (without leaking the guest token).
+  useEffect(() => {
+    if (!ssGuest || !account || !membership) return;
+    if (!(account.buildings || []).includes(ssGuest.bid)) return;
+    const p = new URLSearchParams();
+    p.set("b", ssGuest.bid);
+    p.set("tab", ssGuest.targetSection);
+    if (ssGuest.eventId) p.set("e", ssGuest.eventId);
+    try { window.history.replaceState({}, "", `${window.location.pathname}?${p.toString()}`); } catch {}
+    setGuestCtx(null);
+    guestEnrollStarted.current = false;
+  }, [account, membership, ssGuest?.bid]); // eslint-disable-line
   const effectiveBid = useMemo(() => {
     if (!account || joinContext) return "";
     if (urlBid && isMemberOf(urlBid)) return urlBid;
@@ -94,40 +217,52 @@ export default function App() {
     return (account.buildings || [])[0] || "";
   }, [account, activeBid, urlBid, joinContext]);
 
-  // SEC-10: buildings/{bid} is now readable only by members. effectiveBid is
-  // set only when the user is already in account.buildings (see the useMemo
-  // above), so the subscription starts post-membership.
+  // SEC-11: universally-allowed subscriptions (membership + activities).
+  // These read paths work for both guest and resident members, so they
+  // start immediately when a building is selected — before we know the
+  // residentType.
   useEffect(() => {
     if (!user || !effectiveBid) {
       setConfig(undefined); setFlats([]); setMembers([]); setMembership(undefined);
       setAllWater(null); setAllMaint(null); setActivities(null); setEvents(null); return;
     }
     setConfig(undefined); setMembership(undefined); setAllWater(null); setAllMaint(null);
-    setActivities(null); setEvents(null);
+    setActivities(null); setEvents(null); setFlats([]); setMembers([]);
     setWaterDirty(false); setMaintDirty(false);
     const unsubs = [
-      subscribeBuilding(effectiveBid, setConfig),
-      subscribeFlats(effectiveBid, setFlats),
-      subscribeMembers(effectiveBid, setMembers),
       subscribeMembership(effectiveBid, user.uid, setMembership),
       subscribeActivities(effectiveBid, setActivities),
-      subscribeEvents(effectiveBid, setEvents),
     ];
     return () => unsubs.forEach((u) => u && u());
   }, [user, effectiveBid]); // eslint-disable-line
 
-  // Subscribe to water/maint once membership resolves. Any remaining
-  // residentType==="guest" documents from before SEC-10 still skip billing.
+  // SEC-11: resident-only vs guest-only feeds branch after membership
+  // resolves. Guests read a minimal config from publicBuildings and
+  // eventSummaries for the Events tab; they get [] for water/maint/flats/
+  // members/full events. Residents get the full subscription set.
   useEffect(() => {
     if (!effectiveBid || membership === undefined) return;
-    if (membership === null || membership?.residentType === "guest") {
-      setAllWater([]);
-      setAllMaint([]);
+    if (membership === null) {
+      setAllWater([]); setAllMaint([]); setEvents([]); setConfig(null);
       return;
     }
+    const isGuestMember = membership?.residentType === "guest";
+    if (isGuestMember) {
+      setAllWater([]); setAllMaint([]); setFlats([]); setMembers([]);
+      let alive = true;
+      getPublicBuilding(effectiveBid)
+        .then((b) => { if (alive) setConfig(b || { id: effectiveBid, name: "Building" }); })
+        .catch(() => { if (alive) setConfig({ id: effectiveBid, name: "Building" }); });
+      const unsubSummaries = subscribeEventSummaries(effectiveBid, setEvents);
+      return () => { alive = false; if (unsubSummaries) unsubSummaries(); };
+    }
     const unsubs = [
+      subscribeBuilding(effectiveBid, setConfig),
+      subscribeFlats(effectiveBid, setFlats),
+      subscribeMembers(effectiveBid, setMembers),
       subscribeWaterPeriods(effectiveBid, setAllWater),
       subscribeMaintPeriods(effectiveBid, setAllMaint),
+      subscribeEvents(effectiveBid, setEvents),
     ];
     return () => unsubs.forEach((u) => u && u());
   }, [effectiveBid, membership?.residentType]); // eslint-disable-line
@@ -313,12 +448,45 @@ const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
   };
 
   if (!authReady) return <Splash text="Loading…" />;
-  if (!user) return <Auth inviteBid={urlBid} />;
+  if (!user) {
+    return <Auth
+      buildingId={urlBid}
+      normalInviteFlow={isNormalInviteFlow}
+      guestFlow={isGuestFlow}
+      guestBuildingName={guestPublicName}
+    />;
+  }
   if (!account) return <Splash text="Loading…" />;
+  // SEC-11: guest enrollment routes BEFORE Join.jsx so a guest URL is
+  // never mistaken for a resident invite.
+  if (isGuestFlow && ssGuest && !isMemberOf(ssGuest.bid)) {
+    if (guestState === "error") {
+      return <GuestEnrollment
+        buildingName={guestPublicName}
+        state="error"
+        errorCode={guestError}
+        onRetry={() => {
+          setGuestError(null);
+          setGuestState("preparing");
+          guestEnrollStarted.current = false;
+        }}
+        onSignOut={() => signOut(auth)}
+      />;
+    }
+    return <GuestEnrollment
+      buildingName={guestPublicName}
+      state={guestState === "idle" ? "preparing" : guestState}
+    />;
+  }
   if (creating) {
     return <Setup adminUid={user.uid} username={account.username}
       existingNames={(account.buildings || []).map((b) => bnames[b]).filter(Boolean)}
       onDone={(bid) => { setCreating(false); switchTo(bid); }} onCancel={() => setCreating(false)} />;
+  }
+  // SEC-11: legacy Events links without a guest token get the explicit
+  // "ask for a new link" screen instead of the misleading invite-code prompt.
+  if (isIncompleteEventLink && !isMemberOf(urlBid)) {
+    return <IncompleteEventLink buildingName={guestPublicName} onSignOut={() => signOut(auth)} />;
   }
   if (joinContext) {
     return <Join bid={urlBid} code={urlCode}
