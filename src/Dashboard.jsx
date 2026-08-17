@@ -939,8 +939,11 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
     }
     const amount = raw > 0 ? raw : 0;
     if (amount <= 0) return;
-    // Temporarily cap overpayment until Phase 2 credit system (FUNC-10)
-    if (amount > totalDue && totalDue > 0) {
+    // Temporarily cap overpayment until Phase 2 credit system (FUNC-10).
+    // Compare against the rounded value the user sees in the UI so paying
+    // the displayed amount (e.g. ₹2,491 for a ₹2,490.60 bill) is accepted.
+    const shownDue = Math.round(totalDue);
+    if (amount > shownDue && shownDue > 0) {
       alert(`Payment cannot exceed the amount due (${money(totalDue)}). Overpayment credit will be supported in a future update.`);
       return;
     }
