@@ -933,7 +933,12 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
   const corpus = maint.corpusMonthly || 0;
 
   const doRecord = async (flat, totalDue) => {
-    const amount = Number(payAmt) || 0;
+    const raw = Number(payAmt);
+    if (Number.isFinite(raw) && raw < 0) {
+      alert("Payment amount must be positive.");
+      return;
+    }
+    const amount = raw > 0 ? raw : 0;
     if (amount <= 0) return;
     // Temporarily cap overpayment until Phase 2 credit system (FUNC-10)
     if (amount > totalDue && totalDue > 0) {
@@ -951,13 +956,15 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
 
   const undoLastPayment = async (flat) => {
     if (saving) return;
+    // Read fresh state up-front so the confirm dialog shows the actual amount.
+    const current = config?.payments || [];
+    const flatPays = current.filter((p) => p.flat === flat);
+    if (!flatPays.length) return;
+    const last = flatPays[flatPays.length - 1];
+    const label = `${money(Number(last.amount || 0))}${last.date ? ` from ${last.date}` : ""}`;
+    if (!window.confirm(`Undo last payment of ${label} for Flat ${flat}?\n\nThis will remove the payment record — the flat's balance goes back up.`)) return;
     setSaving(true);
     try {
-      // Use fresh config from props (re-read on each render)
-      const current = config?.payments || [];
-      const flatPays = current.filter((p) => p.flat === flat);
-      if (!flatPays.length) { setSaving(false); return; }
-      const last = flatPays[flatPays.length - 1];
       const updated = current.filter((p) => p.id !== last.id);
       await updateBuilding(bid, { payments: updated });
     } catch (e) { alert("Undo failed: " + (e?.message || "")); }
@@ -971,9 +978,12 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
     const prevOutstanding = Number(outstanding[f.flat] || 0);
     const flatPayments = payments.filter((p) => p.flat === f.flat);
     const totalPaid = flatPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
-    const totalDue = Math.max(0, currentBill + prevOutstanding - totalPaid);
+    const netBalance = currentBill + prevOutstanding - totalPaid;
+    const totalDue = Math.max(0, netBalance);
+    // owedBack: fund owes this flat (they fronted more than they owe, net of prior dues + payments)
+    const owedBack = Math.max(0, -netBalance);
     const recentPayments = flatPayments.slice(-3);
-    return { ...f, w, owed, currentBill, prevOutstanding, totalPaid, totalDue, recentPayments };
+    return { ...f, w, owed, currentBill, prevOutstanding, totalPaid, totalDue, owedBack, recentPayments };
   });
 
   const totalOutstanding = rows.reduce((s, r) => s + Math.max(0, r.totalDue), 0);
@@ -1000,8 +1010,8 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                   <span style={{ fontFamily: display, fontWeight: 700, fontSize: 16 }}>{r.flat}</span>
                   <span style={{ fontSize: 13, color: T.inkSoft, marginLeft: 8 }}>{r.name || ""}</span>
                 </div>
-                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: r.totalDue <= 0 ? T.money : T.ink }}>
-                  {r.totalDue <= 0 ? "Paid" : money(r.totalDue)}
+                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: r.owedBack > 0 ? T.owed : r.totalDue <= 0 ? T.money : T.ink }}>
+                  {r.owedBack > 0 ? `${money(r.owedBack)} back` : r.totalDue <= 0 ? "Paid" : money(r.totalDue)}
                 </span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, fontSize: 12, color: T.inkSoft, marginBottom: 6 }}>
@@ -1012,7 +1022,11 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
               </div>
               {(admin || canWater || canMaint) && (
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  {payingFlat === r.flat ? (
+                  {r.owedBack > 0 ? (
+                    <span style={{ fontSize: 12, color: T.owed, fontWeight: 600 }}>
+                      {money(r.owedBack)} owed back to this flat
+                    </span>
+                  ) : payingFlat === r.flat ? (
                     <div style={{ display: "flex", gap: 6, flex: 1, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
                       <input className="cell" type="number" style={{ ...S.cellInput, flex: "1 0 80px", fontSize: 14 }}
                         value={payAmt} onChange={(e) => setPayAmt(e.target.value)}
@@ -1030,7 +1044,7 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                     <>
                     <button style={{ border: `1px solid ${T.money}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff", color: T.money,
                       borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}
-                      onClick={(e) => { e.stopPropagation(); setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue || r.currentBill))); }}>
+                      onClick={(e) => { e.stopPropagation(); setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue))); }}>
                       {r.totalDue <= 0 ? "✓ Paid" : "Record payment"}
                     </button>
                     {r.totalPaid > 0 && (
@@ -1062,11 +1076,15 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                   <td style={{ ...S.td, cursor: "pointer" }} onClick={() => openFlat(r.flat)}>{r.name || "—"}</td>
                   <td style={{ ...S.td, ...S.num }}>{money(r.currentBill)}</td>
                   <td style={{ ...S.td, ...S.num, color: r.prevOutstanding > 0 ? T.owed : T.muted }}>{r.prevOutstanding > 0 ? money(r.prevOutstanding) : "—"}</td>
-                  <td style={{ ...S.td, ...S.num, fontWeight: 700, color: r.totalDue <= 0 ? T.money : T.ink }}>
-                    {r.totalDue <= 0 ? "✓ Paid" : money(r.totalDue)}
+                  <td style={{ ...S.td, ...S.num, fontWeight: 700, color: r.owedBack > 0 ? T.owed : r.totalDue <= 0 ? T.money : T.ink }}>
+                    {r.owedBack > 0 ? `${money(r.owedBack)} back` : r.totalDue <= 0 ? "✓ Paid" : money(r.totalDue)}
                   </td>
                   <td style={{ ...S.td, textAlign: "center", padding: "4px 8px" }}>
-                    {(admin || canWater || canMaint) ? (
+                    {r.owedBack > 0 ? (
+                      <span style={{ fontSize: 12, color: T.owed, fontWeight: 600 }} title="Fund owes this flat — no payment to record">
+                        owed back
+                      </span>
+                    ) : (admin || canWater || canMaint) ? (
                       payingFlat === r.flat ? (
                         <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
                           <input className="cell" type="number" style={{ ...S.cellInput, width: 90, fontSize: 13 }}
@@ -1084,7 +1102,7 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                           <button style={{ border: `1px solid ${r.totalDue <= 0 ? T.money : T.line}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff",
                             color: r.totalDue <= 0 ? T.money : T.water, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600,
                             cursor: "pointer", fontFamily: font, minWidth: 70 }}
-                            onClick={() => { setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue || r.currentBill))); }}>
+                            onClick={() => { setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue))); }}>
                             {r.totalDue <= 0 ? "✓ Paid" : "Record"}
                           </button>
                           {r.totalPaid > 0 && (
