@@ -16,11 +16,13 @@
    Server-only credential: FIREBASE_ADMIN_CREDENTIALS
      Value is the service-account JSON, either raw or base64-encoded.
      NEVER expose to the browser (no VITE_ prefix).
+
+   Module system: CommonJS (see api/package.json).
 */
 
-// firebase-admin is loaded dynamically inside the handler to avoid
-// ERR_REQUIRE_ESM from Vercel's Node runtime hitting a CJS→ESM boundary
-// in one of firebase-admin's transitive deps at module init time.
+const { cert, getApps, initializeApp } = require("firebase-admin/app");
+const { getAuth } = require("firebase-admin/auth");
+const { FieldValue, getFirestore } = require("firebase-admin/firestore");
 
 function loadServiceAccount() {
   const raw = process.env.FIREBASE_ADMIN_CREDENTIALS;
@@ -32,13 +34,10 @@ function loadServiceAccount() {
 }
 
 let _adminCache = null;
-async function admin() {
+function admin() {
   if (_adminCache) return _adminCache;
-  const { cert, getApps, initializeApp } = await import("firebase-admin/app");
-  const { getAuth } = await import("firebase-admin/auth");
-  const { FieldValue, getFirestore } = await import("firebase-admin/firestore");
   if (!getApps().length) initializeApp({ credential: cert(loadServiceAccount()) });
-  _adminCache = { auth: getAuth(), db: getFirestore(), FieldValue };
+  _adminCache = { auth: getAuth(), db: getFirestore() };
   return _adminCache;
 }
 
@@ -50,7 +49,7 @@ function normalizeCode(s) {
   return String(s || "").trim().toUpperCase();
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") return fail(res, 405, "METHOD_NOT_ALLOWED");
 
   const ct = String(req.headers["content-type"] || "").toLowerCase();
@@ -77,7 +76,7 @@ export default async function handler(req, res) {
 
   let uid;
   try {
-    const { auth } = await admin();
+    const { auth } = admin();
     const decoded = await auth.verifyIdToken(idToken, true);
     uid = decoded.uid;
     if (!uid) {
@@ -99,7 +98,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { db, FieldValue } = await admin();
+    const { db } = admin();
     const bldRef = db.doc(`buildings/${bid}`);
     const bldSnap = await bldRef.get();
     if (!bldSnap.exists) return fail(res, 404, "BUILDING_NOT_FOUND");
@@ -140,4 +139,4 @@ export default async function handler(req, res) {
     console.error("join-building error:", e?.code || e?.message || "unknown");
     return fail(res, 500, "INTERNAL");
   }
-}
+};

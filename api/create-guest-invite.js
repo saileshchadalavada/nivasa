@@ -28,12 +28,17 @@
                   for O(1) lookup during /join-building-guest.
      - The raw token exists only in the returned URL. Firestore never
        holds the raw value.
+
+   Module system: CommonJS. See api/package.json — the /api directory
+   overrides the root "type": "module" so firebase-admin's CJS-internal
+   require() calls resolve their transitive deps in CJS mode (avoids
+   ERR_REQUIRE_ESM against ESM-only versions of undici / google-auth).
 */
 
-import crypto from "node:crypto";
-// firebase-admin is loaded dynamically inside the handler to avoid
-// ERR_REQUIRE_ESM from Vercel's Node runtime hitting a CJS→ESM boundary
-// in one of firebase-admin's transitive deps at module init time.
+const crypto = require("node:crypto");
+const { cert, getApps, initializeApp } = require("firebase-admin/app");
+const { getAuth } = require("firebase-admin/auth");
+const { getFirestore } = require("firebase-admin/firestore");
 
 const DEFAULT_GUEST_INVITE_VALIDITY_DAYS = 30;
 const DEFAULT_GUEST_INVITE_MAX_USES = 20;
@@ -48,11 +53,8 @@ function loadServiceAccount() {
 }
 
 let _adminCache = null;
-async function admin() {
+function admin() {
   if (_adminCache) return _adminCache;
-  const { cert, getApps, initializeApp } = await import("firebase-admin/app");
-  const { getAuth } = await import("firebase-admin/auth");
-  const { getFirestore } = await import("firebase-admin/firestore");
   if (!getApps().length) initializeApp({ credential: cert(loadServiceAccount()) });
   _adminCache = { auth: getAuth(), db: getFirestore() };
   return _adminCache;
@@ -94,7 +96,7 @@ function buildShareUrl(req, { bid, rawToken, targetSection, eventId }) {
   return `${base}/?${params.toString()}`;
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") return fail(res, 405, "METHOD_NOT_ALLOWED");
 
   const ct = String(req.headers["content-type"] || "").toLowerCase();
@@ -122,7 +124,7 @@ export default async function handler(req, res) {
 
   let uid;
   try {
-    const { auth } = await admin();
+    const { auth } = admin();
     const decoded = await auth.verifyIdToken(idToken, true);
     uid = decoded.uid;
     if (!uid) {
@@ -146,7 +148,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { db } = await admin();
+    const { db } = admin();
 
     // Authorize: caller must be admin OR a resident (owner/tenant) member.
     // Guests cannot generate invites.
@@ -194,4 +196,4 @@ export default async function handler(req, res) {
     console.error("create-guest-invite error:", e?.code || e?.message || "unknown");
     return fail(res, 500, "INTERNAL");
   }
-}
+};

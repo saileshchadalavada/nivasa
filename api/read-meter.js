@@ -1,9 +1,11 @@
 /* Vercel serverless function: reads a water meter photo via Gemini vision.
    Expects POST { image: "base64..." }
    Returns { serial, reading, confidence }
-   Requires GEMINI_API_KEY env var in Vercel. */
+   Requires GEMINI_API_KEY env var in Vercel.
 
-export default async function handler(req, res) {
+   Module system: CommonJS (see api/package.json). */
+
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -65,4 +67,4 @@ Example: if odometer shows 00682.05, return reading as "682050".
   } catch (e) {
     return res.status(502).json({ error: "Failed to call Gemini", detail: e.message });
   }
-}
+};

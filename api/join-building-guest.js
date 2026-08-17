@@ -20,12 +20,14 @@
 
    Never returned or logged: raw token, tokenHash, private building doc,
    normal inviteCode, Firebase ID token, service credential.
+
+   Module system: CommonJS (see api/package.json).
 */
 
-import crypto from "node:crypto";
-// firebase-admin is loaded dynamically inside the handler to avoid
-// ERR_REQUIRE_ESM from Vercel's Node runtime hitting a CJS→ESM boundary
-// in one of firebase-admin's transitive deps at module init time.
+const crypto = require("node:crypto");
+const { cert, getApps, initializeApp } = require("firebase-admin/app");
+const { getAuth } = require("firebase-admin/auth");
+const { FieldValue, getFirestore } = require("firebase-admin/firestore");
 
 const ALLOWED_SECTIONS = new Set(["events", "community"]);
 
@@ -37,13 +39,10 @@ function loadServiceAccount() {
 }
 
 let _adminCache = null;
-async function admin() {
+function admin() {
   if (_adminCache) return _adminCache;
-  const { cert, getApps, initializeApp } = await import("firebase-admin/app");
-  const { getAuth } = await import("firebase-admin/auth");
-  const { FieldValue, getFirestore } = await import("firebase-admin/firestore");
   if (!getApps().length) initializeApp({ credential: cert(loadServiceAccount()) });
-  _adminCache = { auth: getAuth(), db: getFirestore(), FieldValue };
+  _adminCache = { auth: getAuth(), db: getFirestore() };
   return _adminCache;
 }
 
@@ -55,7 +54,7 @@ function hashToken(rawToken) {
   return crypto.createHash("sha256").update(rawToken).digest("base64url");
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") return fail(res, 405, "METHOD_NOT_ALLOWED");
 
   const ct = String(req.headers["content-type"] || "").toLowerCase();
@@ -83,7 +82,7 @@ export default async function handler(req, res) {
 
   let uid;
   try {
-    const { auth } = await admin();
+    const { auth } = admin();
     const decoded = await auth.verifyIdToken(idToken, true);
     uid = decoded.uid;
     if (!uid) {
@@ -105,7 +104,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { db, FieldValue } = await admin();
+    const { db } = admin();
     const tokenHash = hashToken(guestToken);
     const inviteRef = db.doc(`buildings/${bid}/guestInvites/${tokenHash}`);
     const memberRef = db.doc(`buildings/${bid}/members/${uid}`);
@@ -206,4 +205,4 @@ export default async function handler(req, res) {
     console.error("join-building-guest error:", e?.code || e?.message || "unknown");
     return fail(res, 500, "INTERNAL");
   }
-}
+};
