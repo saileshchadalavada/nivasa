@@ -18,9 +18,9 @@
      NEVER expose to the browser (no VITE_ prefix).
 */
 
-import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
+// firebase-admin is loaded dynamically inside the handler to avoid
+// ERR_REQUIRE_ESM from Vercel's Node runtime hitting a CJS→ESM boundary
+// in one of firebase-admin's transitive deps at module init time.
 
 function loadServiceAccount() {
   const raw = process.env.FIREBASE_ADMIN_CREDENTIALS;
@@ -31,10 +31,15 @@ function loadServiceAccount() {
   return JSON.parse(decoded);
 }
 
-function admin() {
-  if (getApps().length) return { auth: getAuth(), db: getFirestore() };
-  initializeApp({ credential: cert(loadServiceAccount()) });
-  return { auth: getAuth(), db: getFirestore() };
+let _adminCache = null;
+async function admin() {
+  if (_adminCache) return _adminCache;
+  const { cert, getApps, initializeApp } = await import("firebase-admin/app");
+  const { getAuth } = await import("firebase-admin/auth");
+  const { FieldValue, getFirestore } = await import("firebase-admin/firestore");
+  if (!getApps().length) initializeApp({ credential: cert(loadServiceAccount()) });
+  _adminCache = { auth: getAuth(), db: getFirestore(), FieldValue };
+  return _adminCache;
 }
 
 function fail(res, status, code) {
@@ -72,7 +77,7 @@ export default async function handler(req, res) {
 
   let uid;
   try {
-    const { auth } = admin();
+    const { auth } = await admin();
     const decoded = await auth.verifyIdToken(idToken, true);
     uid = decoded.uid;
     if (!uid) return fail(res, 401, "UNAUTHENTICATED");
@@ -81,7 +86,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { db } = admin();
+    const { db, FieldValue } = await admin();
     const bldRef = db.doc(`buildings/${bid}`);
     const bldSnap = await bldRef.get();
     if (!bldSnap.exists) return fail(res, 404, "BUILDING_NOT_FOUND");

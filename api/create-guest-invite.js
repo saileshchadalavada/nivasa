@@ -31,9 +31,9 @@
 */
 
 import crypto from "node:crypto";
-import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+// firebase-admin is loaded dynamically inside the handler to avoid
+// ERR_REQUIRE_ESM from Vercel's Node runtime hitting a CJS→ESM boundary
+// in one of firebase-admin's transitive deps at module init time.
 
 const DEFAULT_GUEST_INVITE_VALIDITY_DAYS = 30;
 const DEFAULT_GUEST_INVITE_MAX_USES = 20;
@@ -47,10 +47,15 @@ function loadServiceAccount() {
   return JSON.parse(decoded);
 }
 
-function admin() {
-  if (getApps().length) return { auth: getAuth(), db: getFirestore() };
-  initializeApp({ credential: cert(loadServiceAccount()) });
-  return { auth: getAuth(), db: getFirestore() };
+let _adminCache = null;
+async function admin() {
+  if (_adminCache) return _adminCache;
+  const { cert, getApps, initializeApp } = await import("firebase-admin/app");
+  const { getAuth } = await import("firebase-admin/auth");
+  const { getFirestore } = await import("firebase-admin/firestore");
+  if (!getApps().length) initializeApp({ credential: cert(loadServiceAccount()) });
+  _adminCache = { auth: getAuth(), db: getFirestore() };
+  return _adminCache;
 }
 
 function fail(res, status, code) {
@@ -117,7 +122,7 @@ export default async function handler(req, res) {
 
   let uid;
   try {
-    const { auth } = admin();
+    const { auth } = await admin();
     const decoded = await auth.verifyIdToken(idToken, true);
     uid = decoded.uid;
     if (!uid) return fail(res, 401, "UNAUTHENTICATED");
@@ -126,7 +131,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { db } = admin();
+    const { db } = await admin();
 
     // Authorize: caller must be admin OR a resident (owner/tenant) member.
     // Guests cannot generate invites.
