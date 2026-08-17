@@ -311,7 +311,7 @@ export async function startNextMaintPeriod(bid, current) {
   await setDoc(ref, {
     periodStart: b.start, periodEnd: b.end,
     expenses: expenses.filter((e) => e.recurring).map((e) => ({ ...e })),
-    chargePerFlat: charge,
+    chargePerFlat: null,
     carryForward: surplus,
     paidMaint: {}, createdAt: Date.now(), updatedAt: Date.now(),
   });
