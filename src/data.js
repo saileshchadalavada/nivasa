@@ -1,9 +1,9 @@
 /* Firestore access layer — multi-building, with SEPARATE water & maintenance
    billing-period streams (different people, different cycles).
    buildings/{bid}/waterPeriods/{id}  { periodStart, periodEnd, genCount, genRate,
-                                         manCount, manRate, connBill, readings, paidWater, createdAt }
-   buildings/{bid}/maintPeriods/{id}  { periodStart, periodEnd, expenses, paidMaint, createdAt }
-*/
+                                         manCount, manRate, connBill, readings, createdAt }
+   buildings/{bid}/maintPeriods/{id}  { periodStart, periodEnd, expenses, createdAt }
+   Paid state is tracked via buildings/{bid}.payments[] (see recordPayment). */
 import {
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, onSnapshot, writeBatch, query, arrayUnion, arrayRemove,
   runTransaction,
@@ -280,7 +280,7 @@ export async function startNextWaterPeriod(bid, current) {
     // keep legacy fields for backward compat
     genCount: "", genRate: "", manCount: "", manRate: "", connBill: "",
     costItems,
-    readings, paidWater: {}, createdAt: Date.now(), updatedAt: Date.now(),
+    readings, createdAt: Date.now(), updatedAt: Date.now(),
   });
   return ref.id;
 }
@@ -293,11 +293,6 @@ export const saveMaintPeriod = (bid, id, data) => {
   return setDoc(maintRef(bid, id), { ...body, updatedAt: Date.now() });
 };
 export const deleteMaintPeriod = (bid, id) => deleteDoc(maintRef(bid, id));
-
-/* Toggle a paid flag directly on a specific period (used by Overview on the
-   current bill, independent of tab editing). coll = waterPeriods|maintPeriods. */
-export const setPaidFlag = (bid, coll, id, kind, flat, value) =>
-  updateDoc(doc(db, "buildings", bid, coll, id), { [`${kind}.${flat}`]: value });
 
 /* Mark a period as published (a shareable snapshot; re-publishable on updates). */
 export const publishPeriod = (bid, coll, id, uid) =>
@@ -342,7 +337,7 @@ export async function startNextMaintPeriod(bid, current) {
     expenses: expenses.filter((e) => e.recurring).map((e) => ({ ...e })),
     chargePerFlat: null,
     carryForward: surplus,
-    paidMaint: {}, createdAt: Date.now(), updatedAt: Date.now(),
+    createdAt: Date.now(), updatedAt: Date.now(),
   });
   return ref.id;
 }
@@ -355,7 +350,7 @@ export async function backfillWater2026(bid, existingStarts = []) {
   Object.values(WATER_2026).forEach((p) => {
     if (existingStarts.includes(p.periodStart)) return;
     const ref = doc(waterCol(bid));
-    batch.set(ref, { ...p, paidWater: {}, createdAt: Date.parse(p.periodStart), updatedAt: Date.now() });
+    batch.set(ref, { ...p, createdAt: Date.parse(p.periodStart), updatedAt: Date.now() });
     n++;
   });
   batch.update(bldRef(bid), { water2026Imported: true });
@@ -385,7 +380,7 @@ export async function addWaterPeriod(bid, flats) {
 }
 export async function addMaintPeriod(bid) {
   const ref = doc(maintCol(bid));
-  await setDoc(ref, { periodStart: "", periodEnd: "", expenses: [], paidMaint: {}, createdAt: Date.now(), updatedAt: Date.now() });
+  await setDoc(ref, { periodStart: "", periodEnd: "", expenses: [], createdAt: Date.now(), updatedAt: Date.now() });
   return ref.id;
 }
 

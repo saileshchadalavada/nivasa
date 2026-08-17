@@ -82,7 +82,7 @@ export function buildSeedMonth(flats, prefill = false) {
       label: `${MON[(+today.slice(5, 7) || 1) - 1]} ${today.slice(0, 4)}`,
       periodStart: today, periodEnd: today,
       genCount: 0, genRate: 0, manCount: 0, manRate: 0, connBill: 0,
-      readings, expenses: [], paidWater: {}, paidMaint: {},
+      readings, expenses: [],
     };
   }
   return {
@@ -102,7 +102,6 @@ export function buildSeedMonth(flats, prefill = false) {
       { id: "e9", item: "Water meter repair (503)",   amount: 500,   paidBy: "402" },
       { id: "e10", item: "Plumbing issue (series 1)", amount: 430,   paidBy: "101" },
     ],
-    paidWater: {}, paidMaint: {},
   };
 }
 
@@ -142,13 +141,13 @@ export function buildSeedWater(flats, prefill = false) {
       { id: "ci_man", label: "Manjeera tankers", quantity: 10, rate: 550, split: "equal" },
       { id: "ci_conn", label: "Manjeera connection (HMWSSB)", quantity: 1, rate: 1922.5, split: "equal" },
     ],
-    readings, paidWater: {},
+    readings,
   };
   return {
     periodStart: "", periodEnd: "",
     genCount: "", genRate: "", manCount: "", manRate: "", connBill: "",
     costItems: [],
-    readings, paidWater: {},
+    readings,
   };
 }
 
@@ -169,10 +168,9 @@ export function buildSeedMaint(prefill = false) {
       { id: "e9", item: "Water meter repair (503)",   amount: 500,   paidBy: "402" },
       { id: "e10", item: "Plumbing issue (series 1)", amount: 430,   paidBy: "101" },
     ],
-    paidMaint: {},
   };
   const b = monthBounds(new Date().toISOString().slice(0, 10));
-  return { periodStart: b.start, periodEnd: b.end, expenses: [], paidMaint: {} };
+  return { periodStart: b.start, periodEnd: b.end, expenses: [] };
 }
 
 /* role helpers */

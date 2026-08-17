@@ -8,7 +8,7 @@ import {
   subscribeMaintPeriods, saveMaintPeriod, startNextMaintPeriod, deleteMaintPeriod, ensureMaintPeriod,
   subscribeActivities,
   subscribeEvents,
-  deleteBuilding, setPaidFlag, backfillWater2026,
+  deleteBuilding, backfillWater2026,
   removeOwnBuildingReference,
 } from "./data";
 import { isAdmin } from "./seedData";
@@ -182,8 +182,6 @@ const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
 
   const currentWater = displayWater;
   const currentMaint = displayMaint;
-  const togglePaidWater = (flat) => { if (displayWater) setPaidFlag(effectiveBid, "waterPeriods", displayWater.id, "paidWater", flat, !displayWater.paidWater?.[flat]); };
-  const togglePaidMaint = (flat) => { if (displayMaint) setPaidFlag(effectiveBid, "maintPeriods", displayMaint.id, "paidMaint", flat, !displayMaint.paidMaint?.[flat]); };
 
   const seeded = useRef({});
   useEffect(() => {
@@ -364,7 +362,6 @@ const sortedWater = useMemo(() => newest(allWater || []), [allWater]);
       flats={flats} members={members}
       waterMonth={waterMonth} maintMonth={maintMonth} pastWater={pastWater} pastMaint={pastMaint}
       displayWater={displayWater} displayMaint={displayMaint}
-      togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint}
       waterList={sortedWater} maintList={sortedMaint}
       selWaterId={selectedWater ? selectedWater.id : ""} selMaintId={selectedMaint ? selectedMaint.id : ""}
       onSelectWater={selectWater} onSelectMaint={selectMaint} isLatestWater={isLatestWater} isLatestMaint={isLatestMaint}

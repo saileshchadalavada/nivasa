@@ -33,7 +33,7 @@ function useIsMobile(breakpoint = 640) {
 export default function Dashboard({
   user, membership, config, bid, flats, members, activities, events,
   waterMonth, maintMonth, pastWater, pastMaint, patchWater, patchMaint,
-  displayWater, displayMaint, togglePaidWater, togglePaidMaint,
+  displayWater, displayMaint,
   waterList, maintList, selWaterId, selMaintId, onSelectWater, onSelectMaint, isLatestWater, isLatestMaint,
   onSetMeter, onBackfillWater, onBackfillMaint, showAdj, onToggleAdj,
   buildings, onSwitch, onNewBuilding,
@@ -339,10 +339,10 @@ export default function Dashboard({
           />
         )}
         {tab === "dashboard" && !isGuest && (
-          <Overview water={dispWater} maint={dispMaint} paidWater={displayWater?.paidWater || {}} paidMaint={displayMaint?.paidMaint || {}}
+          <Overview water={dispWater} maint={dispMaint}
             waterPeriod={dw} maintPeriod={dm}
             residential={residential} canWater={canWater} canMaint={canMaint} admin={admin} config={config}
-            togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint} openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile}
+            openFlat={setOpenFlat} onShare={shareInvite} mobile={mobile}
             onBroadcast={() => setShowBroadcast(true)} bid={bid} />
         )}
         {showBroadcast && (
@@ -434,7 +434,7 @@ function roleText(membership, admin, meFlat) {
 }
 
 /* ============================= OVERVIEW ============================= */
-function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, togglePaidWater, togglePaidMaint, openFlat, onShare, mobile, onBroadcast, bid }) {
+function Overview({ water, maint, waterPeriod, maintPeriod, residential, canWater, canMaint, admin, config, openFlat, onShare, mobile, onBroadcast, bid }) {
   const payments = config?.payments || [];
   const outstanding = config?.outstanding || {};
   const corpus = maint.corpusMonthly || 0;
@@ -534,7 +534,6 @@ function Overview({ water, maint, paidWater, paidMaint, waterPeriod, maintPeriod
       <SectionTitle>Per-flat statement</SectionTitle>
       <PerFlatPayments residential={residential} water={water} maint={maint}
         config={config} bid={bid} admin={admin} canWater={canWater} canMaint={canMaint}
-        paidWater={paidWater} paidMaint={paidMaint} togglePaidWater={togglePaidWater} togglePaidMaint={togglePaidMaint}
         openFlat={openFlat} mobile={mobile} />
 
 
@@ -922,7 +921,7 @@ function Maintenance({ maint, expenses, setExpenses, residential, canEdit, setFi
 
 /* ---- Per-flat payment tracking with outstanding balances ---- */
 function PerFlatPayments({ residential, water, maint, config, bid, admin, canWater, canMaint,
-  paidWater, paidMaint, togglePaidWater, togglePaidMaint, openFlat, mobile }) {
+  openFlat, mobile }) {
   const [payingFlat, setPayingFlat] = React.useState(null); // flat being paid
   const [payAmt, setPayAmt] = React.useState("");
   const [payNote, setPayNote] = React.useState("");
@@ -1635,14 +1634,6 @@ function NumField({ label, sub, value, onChange, prefix, step, readOnly }) {
           style={{ ...S.fieldInput, paddingLeft: prefix ? 22 : 12, background: readOnly ? "#F6F9F8" : "#fff" }} />
       </span>
     </label>
-  );
-}
-function Paid({ on, editable, onClick }) {
-  if (!editable) return <span style={{ color: on ? T.money : T.muted, fontWeight: 700, fontSize: 13 }}>{on ? "✓ paid" : "—"}</span>;
-  return (
-    <button onClick={onClick} className="tog" style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer", background: on ? T.money : "#CFD9D8", position: "relative", transition: "background .15s" }}>
-      <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
-    </button>
   );
 }
 function PublishBar({ onPublish, publishedAt, kind }) {
