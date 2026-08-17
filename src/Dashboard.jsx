@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { money, money2, labelFromStart, fmtDate, daysBetween } from "./util";
 import { computeWater as computeWaterEngine } from "./billing/waterEngine";
 import { computeMaint as computeMaintEngine } from "./billing/maintenanceEngine";
+import { computeBalance } from "./billing/accountEngine";
 import { buildWaterSnapshot, buildMaintSnapshot } from "./snapshot";
 import { generateWaterPoster, generateMaintPoster, sharePoster, canvasToBlob } from "./poster";
 import { HISTORY, HISTORY_MONTHS } from "./historicalWater";
@@ -453,26 +454,18 @@ function Overview({ water, maint, waterPeriod, maintPeriod, residential, canWate
   const corpus = maint.corpusMonthly || 0;
   const billable = (water.residentialBillTotal || 0) + maint.total;
 
-  // Payment-based status: compute per-flat due using recorded payments
-  const flatDue = (flat) => {
-    const w = water.rows.find((r) => r.flat === flat)?.bill || 0;
-    const owed = maint.byMember[flat] || 0;
-    const bill = w + maint.perFlat + corpus - owed;
-    const prev = Number(outstanding[flat] || 0);
-    const paid = payments.filter((p) => p.flat === flat).reduce((s, p) => s + Number(p.amount || 0), 0);
-    return Math.max(0, bill + prev - paid);
-  };
+  const flatBalance = (flat) => computeBalance({
+    waterCharge: water.rows.find((r) => r.flat === flat)?.bill || 0,
+    maintCharge: maint.perFlat,
+    corpusCharge: corpus,
+    prevOutstanding: Number(outstanding[flat] || 0),
+    totalPaid: payments.filter((p) => p.flat === flat).reduce((s, p) => s + Number(p.amount || 0), 0),
+    owedByFlat: maint.byMember[flat] || 0,
+  });
   const collected = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
-  const statusOf = (flat) => {
-    const due = flatDue(flat);
-    const bill = (water.rows.find((r) => r.flat === flat)?.bill || 0) + maint.perFlat + corpus;
-    const paid = payments.filter((p) => p.flat === flat).reduce((s, p) => s + Number(p.amount || 0), 0);
-    if (due <= 0) return "paid";
-    if (paid > 0) return "partial";
-    return "unpaid";
-  };
-  const counts = residential.reduce((a, f) => { a[statusOf(f.flat)]++; return a; }, { paid: 0, partial: 0, unpaid: 0 });
-  const tileBg = { paid: T.money, partial: T.partial, unpaid: T.unpaid };
+  const statusOf = (flat) => flatBalance(flat).status;
+  const counts = residential.reduce((a, f) => { a[statusOf(f.flat)] = (a[statusOf(f.flat)] || 0) + 1; return a; }, { paid: 0, partial: 0, unpaid: 0, reimbursement_pending: 0 });
+  const tileBg = { paid: T.money, partial: T.partial, unpaid: T.unpaid, reimbursement_pending: T.water };
   const perFloor = config?.perFloor || 3;
   const orderedFlats = [...residential].sort((a, b) => (b.floor - a.floor) || (a.unit - b.unit));
 
@@ -531,6 +524,9 @@ function Overview({ water, maint, waterPeriod, maintPeriod, residential, canWate
         <span style={S.legendItem}><span style={{ ...S.legendDot, background: T.money }} /> Paid ({counts.paid})</span>
         <span style={S.legendItem}><span style={{ ...S.legendDot, background: T.partial }} /> Part paid ({counts.partial})</span>
         <span style={S.legendItem}><span style={{ ...S.legendDot, background: T.unpaid }} /> Unpaid ({counts.unpaid})</span>
+        {counts.reimbursement_pending > 0 && (
+          <span style={S.legendItem}><span style={{ ...S.legendDot, background: T.water }} /> Owed back ({counts.reimbursement_pending})</span>
+        )}
       </div>
       <div style={{ ...S.tileGrid, gridTemplateColumns: `repeat(${perFloor}, 1fr)` }}>
         {orderedFlats.map((f) => {
@@ -550,7 +546,7 @@ function Overview({ water, maint, waterPeriod, maintPeriod, residential, canWate
           return (
             <button key={f.flat} className="tile" onClick={handleTileClick}
               style={{ ...S.tile, background: tileBg[st], boxShadow: `inset 0 -4px 0 rgba(0,0,0,.16)` }}>
-              {f.flat}<span style={S.tileSub}>{st === "paid" ? "paid" : st === "partial" ? "part" : "due"}</span>
+              {f.flat}<span style={S.tileSub}>{st === "paid" ? "paid" : st === "partial" ? "part" : st === "reimbursement_pending" ? "↺" : "due"}</span>
             </button>
           );
         })}
@@ -565,11 +561,11 @@ function Overview({ water, maint, waterPeriod, maintPeriod, residential, canWate
 
       {Object.keys(maint.byMember).length > 0 && (
         <>
-          <SectionTitle>Owed back to members <span style={S.titleHint}>— adhoc expenses fronted out of pocket</span></SectionTitle>
+          <SectionTitle>Resident reimbursements <span style={S.titleHint}>— expenses fronted out of pocket, association owes these back</span></SectionTitle>
           <div style={S.reimbList}>
             {Object.entries(maint.byMember).map(([flat, amt]) => {
               const nm = residential.find((f) => f.flat === flat)?.name || flat;
-              return (<div key={flat} style={S.reimbRow}><span><b>Flat {flat}</b> · {nm}</span><span style={{ ...S.num, color: T.owed, fontWeight: 700 }}>{money(amt)}</span></div>);
+              return (<div key={flat} style={S.reimbRow}><span><b>Flat {flat}</b> · {nm}</span><span style={{ ...S.num, color: T.water, fontWeight: 700 }}>{money(amt)}</span></div>);
             })}
           </div>
         </>
@@ -999,22 +995,24 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
   };
 
   const rows = residential.map((f) => {
-    const w = water.rows.find((r) => r.flat === f.flat)?.bill || 0;
-    const owed = maint.byMember[f.flat] || 0;
-    const currentBill = w + maint.perFlat + corpus - owed;
-    const prevOutstanding = Number(outstanding[f.flat] || 0);
+    const waterCharge = water.rows.find((r) => r.flat === f.flat)?.bill || 0;
+    const owedByFlat = maint.byMember[f.flat] || 0;
     const flatPayments = payments.filter((p) => p.flat === f.flat);
     const totalPaid = flatPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
-    const netBalance = currentBill + prevOutstanding - totalPaid;
-    const totalDue = Math.max(0, netBalance);
-    // owedBack: fund owes this flat (they fronted more than they owe, net of prior dues + payments)
-    const owedBack = Math.max(0, -netBalance);
+    const bal = computeBalance({
+      waterCharge,
+      maintCharge: maint.perFlat,
+      corpusCharge: corpus,
+      prevOutstanding: Number(outstanding[f.flat] || 0),
+      totalPaid,
+      owedByFlat,
+    });
     const recentPayments = flatPayments.slice(-3);
-    return { ...f, w, owed, currentBill, prevOutstanding, totalPaid, totalDue, owedBack, recentPayments };
+    return { ...f, waterCharge, owedByFlat, flatPayments, recentPayments, ...bal };
   });
 
-  const totalOutstanding = rows.reduce((s, r) => s + Math.max(0, r.totalDue), 0);
-  const totalPrevOutstanding = rows.reduce((s, r) => s + r.prevOutstanding, 0);
+  const totalOutstanding = rows.reduce((s, r) => s + r.balanceDue, 0);
+  const totalPrevOutstanding = rows.reduce((s, r) => s + r.previousOutstanding, 0);
 
   return (
     <>
@@ -1037,31 +1035,32 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                   <span style={{ fontFamily: display, fontWeight: 700, fontSize: 16 }}>{r.flat}</span>
                   <span style={{ fontSize: 13, color: T.inkSoft, marginLeft: 8 }}>{r.name || ""}</span>
                 </div>
-                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: r.owedBack > 0 ? T.owed : r.totalDue <= 0 ? T.money : T.ink }}>
-                  {r.owedBack > 0 ? `${money(r.owedBack)} back` : r.totalDue <= 0 ? "Paid" : money(r.totalDue)}
+                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 16, color: r.reimbursementPending > 0.01 ? T.water : r.balanceDue <= 0.01 ? T.money : T.ink }}>
+                  {r.reimbursementPending > 0.01 ? `↺ ${money(r.reimbursementPending)}` : r.balanceDue <= 0.01 ? "Paid" : money(r.balanceDue)}
                 </span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, fontSize: 12, color: T.inkSoft, marginBottom: 6 }}>
-                <span>Water: <b>{money(r.w)}</b></span>
+                <span>Water: <b>{money(r.waterCharge)}</b></span>
                 <span>Maint: <b>{money(maint.perFlat)}</b></span>
                 {corpus > 0 && <span>Corpus: <b>{money(corpus)}</b></span>}
-                {r.prevOutstanding > 0 && <span style={{ color: T.owed }}>Previous: <b>{money(r.prevOutstanding)}</b></span>}
+                {r.previousOutstanding > 0 && <span style={{ color: T.owed }}>Previous: <b>{money(r.previousOutstanding)}</b></span>}
+                {r.reimbursementApplied > 0.01 && <span style={{ color: T.money }}>Reimb: <b>-{money(r.reimbursementApplied)}</b></span>}
               </div>
               {(admin || canWater || canMaint) && (
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  {r.owedBack > 0 ? (
-                    <span style={{ fontSize: 12, color: T.owed, fontWeight: 600 }}>
-                      {money(r.owedBack)} owed back to this flat
+                  {r.reimbursementPending > 0.01 ? (
+                    <span style={{ fontSize: 12, color: T.water, fontWeight: 600 }}>
+                      ↺ {money(r.reimbursementPending)} association owes this flat
                     </span>
                   ) : payingFlat === r.flat ? (
                     <div style={{ display: "flex", gap: 6, flex: 1, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
                       <input className="cell" type="number" style={{ ...S.cellInput, flex: "1 0 80px", fontSize: 14 }}
                         value={payAmt} onChange={(e) => setPayAmt(e.target.value)}
-                        placeholder={String(Math.round(r.totalDue))} autoFocus />
+                        placeholder={String(Math.round(r.balanceDue))} autoFocus />
                       <input className="cell" style={{ ...S.cellInput, flex: "1 0 80px", textAlign: "left", fontSize: 13 }}
                         value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="Note (UPI/Cash)" />
                       <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "6px 12px", fontSize: 12 }}
-                        disabled={saving} onClick={() => doRecord(r.flat, r.totalDue)}>
+                        disabled={saving} onClick={() => doRecord(r.flat, r.balanceDue)}>
                         {saving ? "..." : "✓"}
                       </button>
                       <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 14 }}
@@ -1069,12 +1068,12 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
                     </div>
                   ) : (
                     <>
-                    <button style={{ border: `1px solid ${T.money}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff", color: T.money,
+                    <button style={{ border: `1px solid ${r.balanceDue <= 0.01 ? T.money : T.line}`, background: r.balanceDue <= 0.01 ? "#E8F6EE" : "#fff", color: T.money,
                       borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}
-                      onClick={(e) => { e.stopPropagation(); setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue))); }}>
-                      {r.totalDue <= 0 ? "✓ Paid" : "Record payment"}
+                      onClick={(e) => { e.stopPropagation(); setPayingFlat(r.flat); setPayAmt(String(Math.round(r.balanceDue))); }}>
+                      {r.balanceDue <= 0.01 ? "✓ Paid" : "Record payment"}
                     </button>
-                    {r.totalPaid > 0 && (
+                    {r.paymentsThisCycle > 0.01 && (
                       <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 11, textDecoration: "underline" }}
                         onClick={(e) => { e.stopPropagation(); undoLastPayment(r.flat); }}>undo</button>
                     )}
@@ -1091,56 +1090,58 @@ function PerFlatPayments({ residential, water, maint, config, bid, admin, canWat
             <thead><tr>
               <th style={S.th}>Flat</th>
               <th style={S.th}>Name</th>
-              <th style={{ ...S.th, textAlign: "right" }}>This month</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Outstanding</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Total due</th>
-              <th style={{ ...S.th, textAlign: "center" }}>Payment</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Current bill</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Prev due</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Paid</th>
+              <th style={{ ...S.th, textAlign: "right" }}>Balance</th>
+              <th style={{ ...S.th, textAlign: "center" }}>Action</th>
             </tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.flat} className="row">
                   <td style={{ ...S.td, fontWeight: 600, cursor: "pointer" }} onClick={() => openFlat(r.flat)}>{r.flat}</td>
                   <td style={{ ...S.td, cursor: "pointer" }} onClick={() => openFlat(r.flat)}>{r.name || "—"}</td>
-                  <td style={{ ...S.td, ...S.num }}>{money(r.currentBill)}</td>
-                  <td style={{ ...S.td, ...S.num, color: r.prevOutstanding > 0 ? T.owed : T.muted }}>{r.prevOutstanding > 0 ? money(r.prevOutstanding) : "—"}</td>
-                  <td style={{ ...S.td, ...S.num, fontWeight: 700, color: r.owedBack > 0 ? T.owed : r.totalDue <= 0 ? T.money : T.ink }}>
-                    {r.owedBack > 0 ? `${money(r.owedBack)} back` : r.totalDue <= 0 ? "✓ Paid" : money(r.totalDue)}
+                  <td style={{ ...S.td, ...S.num }}>{money(r.currentCharges)}</td>
+                  <td style={{ ...S.td, ...S.num, color: r.previousOutstanding > 0 ? T.owed : T.muted }}>{r.previousOutstanding > 0 ? money(r.previousOutstanding) : "—"}</td>
+                  <td style={{ ...S.td, ...S.num, color: r.paymentsThisCycle > 0.01 ? T.money : T.muted }}>{r.paymentsThisCycle > 0.01 ? money(r.paymentsThisCycle) : "—"}</td>
+                  <td style={{ ...S.td, ...S.num, fontWeight: 700, color: r.reimbursementPending > 0.01 ? T.water : r.balanceDue <= 0.01 ? T.money : T.ink }}>
+                    {r.reimbursementPending > 0.01 ? `↺ ${money(r.reimbursementPending)}` : r.balanceDue <= 0.01 ? "✓ Paid" : money(r.balanceDue)}
                   </td>
                   <td style={{ ...S.td, textAlign: "center", padding: "4px 8px" }}>
-                    {r.owedBack > 0 ? (
-                      <span style={{ fontSize: 12, color: T.owed, fontWeight: 600 }} title="Fund owes this flat — no payment to record">
-                        owed back
+                    {r.reimbursementPending > 0.01 ? (
+                      <span style={{ fontSize: 12, color: T.water, fontWeight: 600 }} title="Association owes this flat — contact admin to settle">
+                        ↺ owed back
                       </span>
                     ) : (admin || canWater || canMaint) ? (
                       payingFlat === r.flat ? (
                         <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
                           <input className="cell" type="number" style={{ ...S.cellInput, width: 90, fontSize: 13 }}
                             value={payAmt} onChange={(e) => setPayAmt(e.target.value)}
-                            placeholder={String(Math.round(r.totalDue))} autoFocus />
+                            placeholder={String(Math.round(r.balanceDue))} autoFocus />
                           <input className="cell" style={{ ...S.cellInput, width: 80, textAlign: "left", fontSize: 12 }}
                             value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="Note" />
                           <button className="primaryBtn" style={{ ...S.primaryBtn, padding: "5px 10px", fontSize: 12 }}
-                            disabled={saving} onClick={() => doRecord(r.flat, r.totalDue)}>{saving ? "..." : "✓"}</button>
+                            disabled={saving} onClick={() => doRecord(r.flat, r.balanceDue)}>{saving ? "..." : "✓"}</button>
                           <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer" }}
                             onClick={() => setPayingFlat(null)}>✕</button>
                         </span>
                       ) : (
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                          <button style={{ border: `1px solid ${r.totalDue <= 0 ? T.money : T.line}`, background: r.totalDue <= 0 ? "#E8F6EE" : "#fff",
-                            color: r.totalDue <= 0 ? T.money : T.water, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                          <button style={{ border: `1px solid ${r.balanceDue <= 0.01 ? T.money : T.line}`, background: r.balanceDue <= 0.01 ? "#E8F6EE" : "#fff",
+                            color: r.balanceDue <= 0.01 ? T.money : T.water, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600,
                             cursor: "pointer", fontFamily: font, minWidth: 70 }}
-                            onClick={() => { setPayingFlat(r.flat); setPayAmt(String(Math.round(r.totalDue))); }}>
-                            {r.totalDue <= 0 ? "✓ Paid" : "Record"}
+                            onClick={() => { setPayingFlat(r.flat); setPayAmt(String(Math.round(r.balanceDue))); }}>
+                            {r.balanceDue <= 0.01 ? "✓ Paid" : "Record"}
                           </button>
-                          {r.totalPaid > 0 && (
+                          {r.paymentsThisCycle > 0.01 && (
                             <button style={{ border: "none", background: "none", color: T.muted, cursor: "pointer", fontSize: 10, textDecoration: "underline", padding: 0 }}
                               onClick={() => undoLastPayment(r.flat)} title="Undo last payment">undo</button>
                           )}
                         </div>
                       )
                     ) : (
-                      <span style={{ fontSize: 12, color: r.totalDue <= 0 ? T.money : T.muted }}>
-                        {r.totalDue <= 0 ? "✓" : "Pending"}
+                      <span style={{ fontSize: 12, color: r.balanceDue <= 0.01 ? T.money : T.muted }}>
+                        {r.balanceDue <= 0.01 ? "✓" : "Pending"}
                       </span>
                     )}
                   </td>
@@ -1583,14 +1584,19 @@ function FlatStatement({ flat, water, maint, residential, config, embedded, bid,
   const f = residential.find((x) => x.flat === flat);
   if (!w || !f) return <div style={{ color: T.muted }}>No statement for this flat yet.</div>;
   const corpus = maint.corpusMonthly || 0;
-  const total = w.bill + maint.perFlat + corpus;
-  const owedBack = maint.byMember[flat] || 0;
-  const net = total - owedBack;
 
   const allPayments = (config?.payments || []).filter((p) => p.flat === flat);
   const totalPaid = allPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const prevOutstanding = Number((config?.outstanding || {})[flat] || 0);
-  const balance = Math.max(0, net + prevOutstanding - totalPaid);
+
+  const bal = computeBalance({
+    waterCharge: w.bill,
+    maintCharge: maint.perFlat,
+    corpusCharge: corpus,
+    prevOutstanding,
+    totalPaid,
+    owedByFlat: maint.byMember[flat] || 0,
+  });
 
   const Line = ({ label, val, sub, strong, color }) => (
     <div style={{ ...S.stLine, ...(strong ? S.stLineStrong : {}) }}>
@@ -1603,8 +1609,8 @@ function FlatStatement({ flat, water, maint, residential, config, embedded, bid,
       <div style={S.stHead}>
         <div><div style={S.stFlat}>Flat {flat}</div><div style={S.stName}>{f.name || "—"}</div></div>
         <div style={S.stTotalBox}>
-          <div style={S.stTotalLabel}>{balance <= 0 ? "✓ Paid" : "Balance due"}</div>
-          <div style={{ ...S.stTotal, color: balance <= 0 ? T.money : T.ink }}>{balance <= 0 ? "✓" : money(balance)}</div>
+          <div style={S.stTotalLabel}>{bal.balanceDue <= 0.01 ? (bal.reimbursementPending > 0.01 ? "✓ Paid · Reimb. pending" : "✓ Paid") : "Balance due"}</div>
+          <div style={{ ...S.stTotal, color: bal.balanceDue <= 0.01 ? T.money : T.ink }}>{bal.balanceDue <= 0.01 ? "✓" : money(bal.balanceDue)}</div>
         </div>
       </div>
       <div style={S.stGroup}>Water — {money(w.bill)}</div>
@@ -1615,24 +1621,26 @@ function FlatStatement({ flat, water, maint, residential, config, embedded, bid,
       <div style={S.stGroup}>Maintenance — {money(maint.perFlat)}</div>
       <Line label="Common maintenance" sub={money(maint.total) + " total ÷ " + residential.length} val={maint.perFlat} />
       {corpus > 0 && <Line label="Corpus contribution" val={corpus} />}
-      <Line label="Subtotal" val={total} />
-      {owedBack > 0 && <Line label="Less: expenses you fronted" sub="reimbursed from the fund" val={-owedBack} />}
+      <Line label="Subtotal" val={bal.currentCharges} />
       {prevOutstanding > 0 && <Line label="Outstanding from previous" val={prevOutstanding} color={T.owed} />}
-      <Line label="Total bill" val={net + prevOutstanding} strong />
+      <Line label="Total charged" val={bal.totalCharged} strong />
 
-      {allPayments.length > 0 && (
+      {(allPayments.length > 0 || bal.reimbursementApplied > 0.01) && (
         <>
-          <div style={S.stGroup}>Payments</div>
+          <div style={S.stGroup}>Credits</div>
           {allPayments.map((p) => (
             <Line key={p.id} label={"Paid " + (p.date || "") + (p.note ? " (" + p.note + ")" : "")} val={"-" + money(p.amount)} color={T.money} />
           ))}
-          <Line label="Total paid" val={"-" + money(totalPaid)} color={T.money} />
+          {bal.reimbursementApplied > 0.01 && (
+            <Line label="Reimbursement applied" sub="expenses you fronted, credited to your bill" val={"-" + money(bal.reimbursementApplied)} color={T.money} />
+          )}
+          <Line label="Total credited" val={"-" + money(totalPaid + bal.reimbursementApplied)} color={T.money} />
         </>
       )}
 
-      <Line label={balance <= 0 ? "✓ Fully paid" : "Remaining balance"} val={balance <= 0 ? "₹0" : money(balance)} strong color={balance <= 0 ? T.money : T.owed} />
+      <Line label={bal.balanceDue <= 0.01 ? "✓ Fully paid" : "Balance due"} val={bal.balanceDue <= 0.01 ? "₹0" : money(bal.balanceDue)} strong color={bal.balanceDue <= 0.01 ? T.money : T.owed} />
 
-      {balance <= 0 && allPayments.length > 0 && onUndoPay && (
+      {bal.balanceDue <= 0.01 && allPayments.length > 0 && onUndoPay && (
         <div style={{ textAlign: "center", marginTop: 10 }}>
           <button onClick={() => {
             const last = allPayments[allPayments.length - 1];
@@ -1646,7 +1654,11 @@ function FlatStatement({ flat, water, maint, residential, config, embedded, bid,
         </div>
       )}
 
-      {owedBack > 0 && <div style={S.stOwed}>You fronted <b>{money(owedBack)}</b> in adhoc expenses. It's credited against your share.</div>}
+      {bal.reimbursementPending > 0.01 && (
+        <div style={{ ...S.stOwed, background: T.waterSoft, color: T.water, border: `1px solid ${T.water}` }}>
+          Association owes you <b>{money(bal.reimbursementPending)}</b> for expenses you fronted. Contact admin to settle.
+        </div>
+      )}
     </div>
   );
 }

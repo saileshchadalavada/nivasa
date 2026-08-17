@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from "react";
 import { money } from "./util";
 import { styles as S, T, css, display, mono, font } from "./styles";
+import { computeBalance } from "./billing/accountEngine";
 
 /* Broadcast bills to residents via WhatsApp or copy-paste.
    Shows per-flat breakdown with "Send via WhatsApp" per row + "Copy all". */
 
-function buildMessage({ name, flat, waterBill, maintCharge, owedBack, periodLabel, buildingName }) {
-  const total = waterBill + maintCharge - owedBack;
+function buildMessage({ name, waterBill, maintCharge, corpusCharge, balanceDue, reimbursementPending, periodLabel, buildingName }) {
   const lines = [
     `Hi ${name},`,
     `Your ${periodLabel} bill for ${buildingName}:`,
@@ -14,8 +14,9 @@ function buildMessage({ name, flat, waterBill, maintCharge, owedBack, periodLabe
     `💧 Water: ${money(waterBill)}`,
     `🔧 Maintenance: ${money(maintCharge)}`,
   ];
-  if (owedBack > 0) lines.push(`💰 Owed back to you: -${money(owedBack)}`);
-  lines.push("", `📋 Total due: ${money(total)}`, "", "— Nivasa");
+  if (corpusCharge > 0) lines.push(`🏦 Corpus: ${money(corpusCharge)}`);
+  if (reimbursementPending > 0) lines.push(`💚 Association owes you: ${money(reimbursementPending)}`);
+  lines.push("", `📋 Total due: ${money(balanceDue)}`, "", "— Nivasa");
   return lines.join("\n");
 }
 
@@ -33,19 +34,22 @@ export default function Broadcast({ residential, members, water, maint, waterPer
   const periodLabel = [waterPeriod?.label, maintPeriod?.label].filter(Boolean).join(" / ") || "this month";
   const buildingName = config?.name || "your building";
 
+  const corpusCharge = Number(config?.corpus?.monthly || 0);
+
   const rows = useMemo(() => residential.map((f) => {
     const member = members.find((m) => m.flat === f.flat);
     const waterBill = water.rows.find((r) => r.flat === f.flat)?.bill || 0;
-    const owedBack = maint.byMember[f.flat] || 0;
+    const owedByFlat = maint.byMember[f.flat] || 0;
+    const bal = computeBalance({ waterCharge: waterBill, maintCharge: maint.perFlat, corpusCharge, owedByFlat });
     const msg = buildMessage({
       name: f.name || member?.username || `Flat ${f.flat}`,
-      flat: f.flat, waterBill, maintCharge: maint.perFlat, owedBack,
+      waterBill, maintCharge: maint.perFlat, corpusCharge,
+      balanceDue: bal.balanceDue, reimbursementPending: bal.reimbursementPending,
       periodLabel, buildingName,
     });
     const phone = member?.phone || "";
-    const total = waterBill + maint.perFlat - owedBack;
-    return { flat: f.flat, name: f.name || "", phone, waterBill, maintCharge: maint.perFlat, owedBack, total, msg };
-  }), [residential, members, water, maint, periodLabel, buildingName]);
+    return { flat: f.flat, name: f.name || "", phone, waterBill, maintCharge: maint.perFlat, owedByFlat, ...bal, msg };
+  }), [residential, members, water, maint, corpusCharge, periodLabel, buildingName]);
 
   const allMessages = rows.map((r) => `--- Flat ${r.flat} ---\n${r.msg}`).join("\n\n");
 
@@ -94,12 +98,13 @@ export default function Broadcast({ residential, members, water, maint, waterPer
                   <span style={{ color: T.inkSoft, fontSize: 13, marginLeft: 8 }}>{r.name}</span>
                   {r.phone && <span style={{ color: T.muted, fontSize: 11.5, marginLeft: 8, fontFamily: mono }}>{r.phone}</span>}
                 </div>
-                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 15 }}>{money(r.total)}</span>
+                <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 15, color: r.reimbursementPending > 0.01 ? T.water : T.ink }}>{money(r.balanceDue)}</span>
               </div>
               <div style={{ display: "flex", gap: 8, fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>
                 <span>💧 {money(r.waterBill)}</span>
                 <span>🔧 {money(r.maintCharge)}</span>
-                {r.owedBack > 0 && <span style={{ color: T.owed }}>-{money(r.owedBack)}</span>}
+                {corpusCharge > 0 && <span>🏦 {money(corpusCharge)}</span>}
+                {r.reimbursementPending > 0.01 && <span style={{ color: T.water }}>↺ {money(r.reimbursementPending)} owed back</span>}
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={B.waBtn} onClick={() => openWhatsApp(r.phone, r.msg)}>
