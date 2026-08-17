@@ -586,6 +586,41 @@ export async function deleteEvent(bid, id) {
   await batch.commit();
 }
 
+/* SEC-11 one-shot maintenance: write a guest-safe eventSummaries/{eid}
+   doc for every event that doesn't yet have one. Events created before
+   SEC-11 do not have summaries; guests would see an empty Events list
+   until they're backfilled.
+
+   Idempotent: skips events that already have a matching summary. Only
+   admin or a member with the 'treasurer' role can run this — the same
+   auth as canCreateEventSummary in firestore.rules. Returns
+   { total, written, skipped }. */
+export async function backfillEventSummaries(bid) {
+  const [eventsSnap, summariesSnap] = await Promise.all([
+    getDocs(eventsCol(bid)),
+    getDocs(eventSummariesCol(bid)),
+  ]);
+  const existing = new Set(summariesSnap.docs.map((d) => d.id));
+  const missing = eventsSnap.docs.filter((d) => !existing.has(d.id));
+  if (missing.length === 0) {
+    return { total: eventsSnap.size, written: 0, skipped: existing.size };
+  }
+  // Firestore batch limit is 500 writes; chunk to stay well under it.
+  const CHUNK = 400;
+  let written = 0;
+  for (let i = 0; i < missing.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    const now = Date.now();
+    for (const evDoc of missing.slice(i, i + CHUNK)) {
+      const summary = computeEventSummary(evDoc.data() || {});
+      batch.set(eventSummaryRef(bid, evDoc.id), { ...summary, createdAt: now });
+      written++;
+    }
+    await batch.commit();
+  }
+  return { total: eventsSnap.size, written, skipped: existing.size };
+}
+
 /* Admin-only: delete an entire building — every subcollection doc and the
    config document. The deleting admin's own account is cleaned up via
    currentUid; other members' stale building references are pruned on

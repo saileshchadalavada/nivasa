@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { createEvent, updateEvent, createGuestInvite } from "./data";
+import { createEvent, updateEvent, createGuestInvite, backfillEventSummaries } from "./data";
 import { money, fmtDate } from "./util";
 import { styles as S, T, display, mono, font } from "./styles";
 
@@ -29,6 +29,21 @@ export default function Events({ bid, events, membership, flats, admin, mobile, 
 
   const [selId, setSelId] = useState(initialEventId || null);
   const [creating, setCreating] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  // SEC-11 backfill: admin can regenerate guest-safe summaries for events
+  // created before SEC-11. Idempotent — safe to click multiple times.
+  const doBackfill = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const r = await backfillEventSummaries(bid);
+      if (r.written === 0) alert(`All ${r.total} event summaries are already up to date.`);
+      else alert(`Wrote ${r.written} new event summaries (of ${r.total} events). Guests can now see these events.`);
+    } catch (e) {
+      alert("Backfill failed: " + (e?.message || e?.code || "unknown error"));
+    } finally { setSyncing(false); }
+  };
 
   const selEvent = selId ? events.find((e) => e.id === selId) : sorted[0] || null;
 
@@ -45,7 +60,19 @@ export default function Events({ bid, events, membership, flats, admin, mobile, 
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
         <h2 style={S.section}>Events</h2>
-        {admin && !isGuest && <button style={E.newBtn} onClick={() => setCreating(true)}>+ New event</button>}
+        {admin && !isGuest && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              style={{ ...E.newBtn, background: "transparent", color: T.inkSoft, border: `1px solid ${T.line}`, opacity: syncing ? 0.6 : 1 }}
+              disabled={syncing}
+              onClick={doBackfill}
+              title="Regenerate guest-safe event summaries for events created before SEC-11. Safe to run multiple times."
+            >
+              {syncing ? "Syncing…" : "🔄 Sync guest view"}
+            </button>
+            <button style={E.newBtn} onClick={() => setCreating(true)}>+ New event</button>
+          </div>
+        )}
       </div>
 
       {sorted.length === 0 ? (
