@@ -125,8 +125,23 @@ export default async function handler(req, res) {
     const { auth } = await admin();
     const decoded = await auth.verifyIdToken(idToken, true);
     uid = decoded.uid;
-    if (!uid) return fail(res, 401, "UNAUTHENTICATED");
-  } catch {
+    if (!uid) {
+      console.error("create-guest-invite: verified token had no uid");
+      return fail(res, 401, "UNAUTHENTICATED");
+    }
+  } catch (e) {
+    // Emit a scoped hint so the caller can distinguish misconfig from a
+    // truly bad token in Vercel logs. Do NOT log the token or credentials.
+    const msg = String(e?.message || "");
+    const code = String(e?.code || "");
+    let hint = "verify_failed";
+    if (msg.includes("FIREBASE_ADMIN_CREDENTIALS not set")) hint = "creds_missing";
+    else if (msg.includes("Unexpected token") || msg.includes("JSON")) hint = "creds_malformed_json";
+    else if (code === "auth/id-token-expired") hint = "token_expired";
+    else if (code === "auth/argument-error") hint = "token_malformed";
+    else if (code === "auth/id-token-revoked") hint = "token_revoked";
+    else if (code === "auth/invalid-credential" || msg.includes("Failed to determine project ID") || msg.includes("project ID")) hint = "creds_or_project_id_mismatch";
+    console.error(`create-guest-invite: 401 hint=${hint} code=${code}`);
     return fail(res, 401, "UNAUTHENTICATED");
   }
 
