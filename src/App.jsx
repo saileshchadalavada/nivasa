@@ -253,8 +253,8 @@ export default function App() {
       getPublicBuilding(effectiveBid)
         .then((b) => { if (alive) setConfig(b || { id: effectiveBid, name: "Building" }); })
         .catch(() => { if (alive) setConfig({ id: effectiveBid, name: "Building" }); });
-      const unsubSummaries = subscribeEventSummaries(effectiveBid, setEvents);
-      return () => { alive = false; if (unsubSummaries) unsubSummaries(); };
+      const unsubEvents = subscribeEvents(effectiveBid, setEvents);
+      return () => { alive = false; if (unsubEvents) unsubEvents(); };
     }
     const unsubs = [
       subscribeBuilding(effectiveBid, setConfig),

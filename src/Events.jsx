@@ -116,7 +116,14 @@ export default function Events({ bid, events, membership, flats, admin, mobile, 
    eventSummaries document — no donations, expenses, receivables, or
    donor identities. */
 function GuestEventView({ summary }) {
-  const bal = Number(summary.balance ?? (Number(summary.openingBalance || 0) + Number(summary.collectedTotal || 0) - Number(summary.spentTotal || 0)));
+  const donations = Array.isArray(summary.donations) ? summary.donations : [];
+  const expenses = Array.isArray(summary.expenses) ? summary.expenses : [];
+  const collectedTotal = summary.collectedTotal ?? donations.reduce((s, d) => s + Number(d.amount || 0), 0);
+  const spentTotal = summary.spentTotal ?? expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const openingBalance = Number(summary.openingBalance || 0);
+  const bal = Number(summary.balance ?? (openingBalance + collectedTotal - spentTotal));
+  const donorCount = summary.donorCount ?? donations.length;
+  const expenseCount = summary.expenseCount ?? expenses.length;
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
@@ -138,19 +145,19 @@ function GuestEventView({ summary }) {
       <div style={S.cards}>
         <div style={S.card}>
           <div style={S.cardLabel}>Collected</div>
-          <div style={{ ...S.cardValue, color: T.money }}>{money(summary.collectedTotal || 0)}</div>
-          <div style={S.cardNote}>{Number(summary.donorCount || 0)} donors</div>
+          <div style={{ ...S.cardValue, color: T.money }}>{money(collectedTotal)}</div>
+          <div style={S.cardNote}>{donorCount} donors</div>
         </div>
         <div style={S.card}>
           <div style={S.cardLabel}>Spent</div>
-          <div style={{ ...S.cardValue, color: T.owed }}>{money(summary.spentTotal || 0)}</div>
-          <div style={S.cardNote}>{Number(summary.expenseCount || 0)} expenses</div>
+          <div style={{ ...S.cardValue, color: T.owed }}>{money(spentTotal)}</div>
+          <div style={S.cardNote}>{expenseCount} expenses</div>
         </div>
         <div style={S.card}>
           <div style={S.cardLabel}>Balance</div>
           <div style={{ ...S.cardValue, color: bal >= 0 ? T.money : T.owed }}>{money(bal)}</div>
           <div style={S.cardNote}>
-            {Number(summary.openingBalance || 0) > 0 ? `Opening ${money(summary.openingBalance)} + collected − spent` : "collected − spent"}
+            {openingBalance > 0 ? `Opening ${money(openingBalance)} + collected − spent` : "collected − spent"}
           </div>
         </div>
       </div>

@@ -316,7 +316,7 @@ service cloud.firestore {
         allow delete: if isAdmin();
       }
 
-      // ── events (festival donations & expenses) ── SEC-11: residents only.
+      // ── events (festival donations & expenses) ── all members may read.
       match /events/{eid} {
         function validEvent(data) {
           return data.keys().hasOnly([
@@ -333,8 +333,7 @@ service cloud.firestore {
             && data.updatedAt is int;
         }
 
-        // SEC-11: guests read eventSummaries; residents/admin read the full event.
-        allow read: if isResidentMember() || isAdmin();
+        allow read: if isMember();
 
         allow create: if isAdmin()
           && validEvent(request.resource.data);
