@@ -177,7 +177,11 @@ service cloud.firestore {
 
         allow update: if (
             isAdmin()
-            && validRoles(request.resource.data.roles)
+            && validMemberShape(request.resource.data)
+            && request.resource.data.joinedAt == resource.data.joinedAt
+            && request.resource.data.username == resource.data.username
+            && request.resource.data.diff(resource.data)
+                 .affectedKeys().hasOnly(['roles', 'phone', 'flat', 'residentType'])
           )
           || selfProfileUpdate()
           || selfFlatAssignment();

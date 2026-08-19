@@ -34,6 +34,43 @@ const votesCol = (bid, aid) => collection(db, "buildings", bid, "activities", ai
 const voteRef = (bid, aid, uid) => doc(db, "buildings", bid, "activities", aid, "votes", uid);
 const publicBldRef = (bid) => doc(db, "publicBuildings", bid);
 
+/* ---- member shape validation (HIGH-03) ---- */
+const VALID_MEMBER_ROLES = new Set(["admin", "treasurer", "water"]);
+const VALID_RESIDENT_TYPES = new Set(["owner", "tenant", "guest"]);
+const ALLOWED_MEMBER_KEYS = new Set(["username", "flat", "roles", "residentType", "phone", "joinedAt"]);
+
+function validateMemberShape(data) {
+  if (!data || typeof data !== "object") throw new Error("member-invalid-shape");
+  for (const k of Object.keys(data)) {
+    if (!ALLOWED_MEMBER_KEYS.has(k)) throw new Error(`member-unknown-field:${k}`);
+  }
+  if (typeof data.username !== "string" || data.username.length < 1 || data.username.length > 50)
+    throw new Error("member-invalid-username");
+  if (data.flat !== null && typeof data.flat !== "string")
+    throw new Error("member-invalid-flat");
+  if (!Array.isArray(data.roles) || !data.roles.every((r) => VALID_MEMBER_ROLES.has(r)))
+    throw new Error("member-invalid-roles");
+  if (!VALID_RESIDENT_TYPES.has(data.residentType))
+    throw new Error("member-invalid-residentType");
+  if (data.phone !== null && typeof data.phone !== "string")
+    throw new Error("member-invalid-phone");
+  if (typeof data.joinedAt !== "number")
+    throw new Error("member-invalid-joinedAt");
+}
+
+/* Strips immutable fields (joinedAt, username) from the patch, reads the
+   current member doc, merges, validates the full shape, then writes only
+   the safe patch. Firestore rules enforce the same constraints server-side. */
+export async function updateMemberValidated(bid, uid, patch) {
+  const { joinedAt: _j, username: _u, ...safePatch } = patch;
+  const snap = await getDoc(memberRef(bid, uid));
+  if (!snap.exists()) throw new Error("membership-not-found");
+  const existing = snap.data();
+  const merged = { ...existing, ...safePatch };
+  validateMemberShape(merged);
+  await updateDoc(memberRef(bid, uid), safePatch);
+}
+
 /* ---- account ---- */
 export const subscribeAccount = (uid, cb) =>
   onSnapshot(userRef(uid), (s) => cb(s.exists() ? s.data() : null));
@@ -173,8 +210,8 @@ export const subscribeMembership = (bid, uid, cb) =>
 export const subscribeMembers = (bid, cb) =>
   onSnapshot(query(membersCol(bid)), (snap) => cb(snap.docs.map((d) => ({ uid: d.id, ...d.data() }))));
 export const setMemberFlat = (bid, uid, flat) => updateDoc(memberRef(bid, uid), { flat });
-export const setMemberRoles = (bid, uid, roles) => updateDoc(memberRef(bid, uid), { roles });
-export const updateMembership = (bid, uid, patch) => updateDoc(memberRef(bid, uid), patch);
+export const setMemberRoles = (bid, uid, roles) => updateMemberValidated(bid, uid, { roles });
+export const updateMembership = (bid, uid, patch) => updateMemberValidated(bid, uid, patch);
 
 /* Admin flat assignment: atomically updates the member doc AND both flat docs
    (clears claimedByUid on the old flat, sets it on the new one). */

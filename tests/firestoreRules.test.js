@@ -13,7 +13,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { doc, getDoc, getDocs, collection, setDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES_PATH = path.join(HERE, "..", "firestore.rules");
@@ -251,7 +251,7 @@ describeIfEmulator("firestore.rules — SEC-10 matrix", () => {
     await assertFails(getDoc(doc(db, "buildings", "b1", "waterPeriods", "seed")));
   });
 
-  it("guest cannot read full event doc, but can read the event summary", async () => {
+  it("guest can read event doc and event summary (events open to all members)", async () => {
     await env.withSecurityRulesDisabled(async (ctx) => {
       const db = ctx.firestore();
       await setDoc(doc(db, "buildings", "b1", "events", "ev1"), {
@@ -270,7 +270,7 @@ describeIfEmulator("firestore.rules — SEC-10 matrix", () => {
       members: { guestX: { residentType: "guest" } },
     });
     const db = env.authenticatedContext("guestX").firestore();
-    await assertFails(getDoc(doc(db, "buildings", "b1", "events", "ev1")));
+    await assertSucceeds(getDoc(doc(db, "buildings", "b1", "events", "ev1")));
     await assertSucceeds(getDoc(doc(db, "buildings", "b1", "eventSummaries", "ev1")));
   });
 
@@ -289,6 +289,85 @@ describeIfEmulator("firestore.rules — SEC-10 matrix", () => {
     await assertFails(getDoc(doc(adminDb, "buildings", "b1", "guestInvites", "hash123")));
     await assertFails(getDoc(doc(ownerDb, "buildings", "b1", "guestInvites", "hash123")));
     await assertFails(setDoc(doc(adminDb, "buildings", "b1", "guestInvites", "new"), { status: "active", allowedSections: ["events"] }));
+  });
+
+  /* ---------- HIGH-03: member update integrity ---------- */
+
+  describe("HIGH-03: member update — shape + immutability", () => {
+    const BID = "b-h03";
+    const ADMIN = "adminH03";
+    const MEMBER = "memberH03";
+
+    beforeEach(async () => {
+      await seedBuilding({
+        bid: BID,
+        adminUid: ADMIN,
+        members: {
+          [ADMIN]: { username: "admin", roles: [], residentType: "owner", flat: null, phone: null },
+          [MEMBER]: { username: "alice", roles: [], residentType: "owner", flat: "101", phone: null },
+        },
+      });
+    });
+
+    const adminDb = () => env.authenticatedContext(ADMIN).firestore();
+    const memberRef = () => doc(adminDb(), "buildings", BID, "members", MEMBER);
+
+    // PASS cases
+    it("admin can update roles", async () => {
+      await assertSucceeds(updateDoc(memberRef(), { roles: ["treasurer"] }));
+    });
+
+    it("admin can update phone", async () => {
+      await assertSucceeds(updateDoc(memberRef(), { phone: "+91 9000000000" }));
+    });
+
+    it("admin can update flat", async () => {
+      await assertSucceeds(updateDoc(memberRef(), { flat: "202" }));
+    });
+
+    it("admin can update residentType", async () => {
+      await assertSucceeds(updateDoc(memberRef(), { residentType: "tenant" }));
+    });
+
+    // FAIL cases — immutable fields
+    it("admin cannot change joinedAt", async () => {
+      await assertFails(updateDoc(memberRef(), { joinedAt: 1 }));
+    });
+
+    it("admin cannot change username", async () => {
+      await assertFails(updateDoc(memberRef(), { username: "hacked" }));
+    });
+
+    // FAIL cases — unknown / invalid fields
+    it("admin cannot add an unknown field", async () => {
+      await assertFails(updateDoc(memberRef(), { secret: "inject" }));
+    });
+
+    it("admin cannot set an invalid role", async () => {
+      await assertFails(updateDoc(memberRef(), { roles: ["superadmin"] }));
+    });
+
+    it("admin cannot set an invalid residentType", async () => {
+      await assertFails(updateDoc(memberRef(), { residentType: "hacker" }));
+    });
+
+    // FAIL — non-admin cannot update another member
+    it("non-admin member cannot update another member's roles", async () => {
+      await seedBuilding({
+        bid: BID,
+        adminUid: ADMIN,
+        members: {
+          [ADMIN]: { username: "admin", roles: [], residentType: "owner", flat: null, phone: null },
+          [MEMBER]: { username: "alice", roles: [], residentType: "owner", flat: "101", phone: null },
+          "nonAdminH03": { username: "bob", roles: [], residentType: "owner", flat: null, phone: null },
+        },
+      });
+      const nonAdminDb = env.authenticatedContext("nonAdminH03").firestore();
+      await assertFails(updateDoc(
+        doc(nonAdminDb, "buildings", BID, "members", MEMBER),
+        { roles: ["treasurer"] }
+      ));
+    });
   });
 
   it("allows founder atomic building setup batch", async () => {
